@@ -29,6 +29,8 @@ func (s *Server) routeSMSAPI(w http.ResponseWriter, r *http.Request, cleanPath s
 		s.handleSMSContacts(w, r)
 	case "sms/thread":
 		s.handleSMSThread(w, r)
+	case "sms/purge-modem":
+		s.handleSMSPurgeModem(w, r)
 	case "sms/send":
 		s.handleSMSSend(w, r)
 	default:
@@ -904,6 +906,95 @@ func (s *Server) deleteSMSMessages(ctx context.Context, messages []store.SMSMess
 		}
 	}
 	return nil
+}
+
+// handleSMSPurgeModem clears every SMS stored on a DJI 4G module (or any
+// cellular modem), both modem-side memories and the local database records.
+// This mirrors DJOneHub's "清空模块旧短信" for modules with leftover history
+// from a previous owner: it lists the modem's SMS storages and deletes each
+// message by index, then removes the matching local store rows so contacts and
+// threads do not resurrect ghost messages on the next sync.
+func (s *Server) handleSMSPurgeModem(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+	if deviceID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_device", "device_id is required")
+		return
+	}
+	ctx := r.Context()
+	configs, err := s.store.ListDevices(ctx)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	var config store.Device
+	found := false
+	for _, candidate := range configs {
+		if candidate.ID == deviceID {
+			config, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "not_found", "device was not found")
+		return
+	}
+	_, physicalID, present := s.physicalForConfig(config)
+	if !present {
+		writeError(w, http.StatusNotFound, "not_found", "device is not physically present")
+		return
+	}
+
+	s.smsSyncMu.Lock()
+	defer s.smsSyncMu.Unlock()
+
+	listContext, cancelList := context.WithTimeout(ctx, 30*time.Second)
+	modemMessages, listErr := s.devices.ListSMS(listContext, physicalID)
+	cancelList()
+	if listErr != nil {
+		s.writeDeviceError(w, listErr)
+		return
+	}
+	modemDeleted := 0
+	for _, message := range modemMessages {
+		if message.Index <= 0 {
+			continue
+		}
+		deleteContext, cancelDelete := context.WithTimeout(ctx, 10*time.Second)
+		deleteErr := s.devices.DeleteSMSFromStorage(deleteContext, physicalID, message.Storage, message.Index)
+		cancelDelete()
+		if deleteErr != nil {
+			s.writeDeviceError(w, fmt.Errorf("delete modem SMS from %s index %d: %w", message.Storage, message.Index, deleteErr))
+			return
+		}
+		modemDeleted++
+	}
+
+	// Remove local rows for this device so the next sync does not resurrect
+	// the just-purged messages as a fresh ghost thread.
+	filter := s.smsStoreFilter(ctx, deviceID, config.ModemIMEI)
+	filter.Limit = 1000
+	localMessages, localErr := s.store.ListSMSMessages(ctx, filter)
+	if localErr != nil {
+		s.writeStoreError(w, localErr)
+		return
+	}
+	localDeleted := 0
+	for _, message := range localMessages {
+		if err := s.store.DeleteSMSMessage(ctx, message.ID); err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		localDeleted++
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"modem_deleted": modemDeleted,
+			"local_deleted": localDeleted,
+		},
+	})
 }
 
 func (s *Server) deleteModemSMS(ctx context.Context, stored store.SMSMessage) error {

@@ -90,3 +90,13 @@ export interface DeleteThreadQuery {
 export function deleteThread(q: DeleteThreadQuery): Promise<unknown> {
   return api(`/sms/thread${qs({ peer: q.peer, device_id: q.deviceId, modem_imei: q.modemImei, iccid: q.iccid, imsi: q.imsi })}`, { method: "DELETE" });
 }
+
+export interface PurgeModemResult {
+  modemDeleted: number;
+  localDeleted: number;
+}
+
+// 清空模块全部旧短信（模块存储 + 本地记录），对应 DJOneHub 的"清空模块旧短信"。
+export function purgeModemSms(deviceId: string): Promise<PurgeModemResult> {
+  return api<PurgeModemResult>(`/sms/purge-modem${qs({ device_id: deviceId })}`, { method: "POST" });
+}

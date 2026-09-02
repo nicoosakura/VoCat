@@ -436,6 +436,107 @@ func TestDeleteSMSRemovesModemCopyBeforeDatabaseRow(t *testing.T) {
 	}
 }
 
+func TestSMSPurgeModemClearsModemAndLocalStorage(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	const (
+		deviceID = "dji-1"
+		imei     = "867394042309830"
+	)
+	if err := database.UpsertDevice(ctx, store.Device{
+		ID: deviceID, Name: "DJI 4G Module", DeviceType: store.DeviceTypePCIeEC20EC25,
+		ModemIMEI: imei, SMSEnabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	receivedAt := time.Unix(1_700_000_000, 0).UTC()
+	modemMessages := []device.SMSMessage{
+		{
+			Index: 1, Storage: "SM", StorageStatus: device.SMSStatusReceivedUnread,
+			Direction: device.SMSDirectionReceived, From: "+8613800138000", Text: "old offer",
+			Encoding: device.SMSEncodingGSM7PDU, ServiceCenterTimestamp: &receivedAt,
+		},
+		{
+			Index: 2, Storage: "ME", StorageStatus: device.SMSStatusReceivedUnread,
+			Direction: device.SMSDirectionReceived, From: "+447700900123", Text: "leftover",
+			Encoding: device.SMSEncodingGSM7PDU, ServiceCenterTimestamp: &receivedAt,
+		},
+	}
+	if _, err := database.SaveSMSMessage(ctx, store.SMSMessage{
+		MessageID: "modem:SM:1:1", DeviceID: deviceID, ModemIMEI: imei,
+		IMSI: "imsi-a", Peer: "+8613800138000", Direction: "inbound",
+		Body: "old offer", Timestamp: receivedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	controller := &smsDeletionController{
+		fakeDeviceController: fakeDeviceController{entry: device.Device{
+			ID: deviceID, Discovered: true,
+			Snapshot: &device.Snapshot{DeviceID: deviceID, IMEI: imei, IMSI: "imsi-a"},
+		}},
+		storedMessages: modemMessages,
+	}
+	server := &Server{store: database, logger: regionTestLogger(), devices: controller}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/sms/purge-modem?device_id="+deviceID,
+		nil,
+	)
+	response := httptest.NewRecorder()
+	server.handleSMSPurgeModem(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			ModemDeleted int `json:"modem_deleted"`
+			LocalDeleted int `json:"local_deleted"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.ModemDeleted != 2 || envelope.Data.LocalDeleted != 1 {
+		t.Fatalf("purge counts = %+v, want modem=2 local=1", envelope.Data)
+	}
+	if remaining := len(controller.storedMessages); remaining != 0 {
+		t.Fatalf("modem storage remaining = %d, want 0", remaining)
+	}
+	local, err := database.ListSMSMessages(ctx, store.SMSFilter{ModemIMEI: imei})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(local) != 0 {
+		t.Fatalf("local messages after purge = %#v, want none", local)
+	}
+}
+
+func TestSMSPurgeModemRejectsMissingDevice(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	server := &Server{store: database, logger: regionTestLogger(), devices: fakeDeviceController{}}
+
+	response := httptest.NewRecorder()
+	server.handleSMSPurgeModem(response, httptest.NewRequest(http.MethodPost, "/api/sms/purge-modem", nil))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("missing device_id status = %d, want 400; body=%s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	server.handleSMSPurgeModem(response, httptest.NewRequest(http.MethodPost, "/api/sms/purge-modem?device_id=ghost", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown device status = %d, want 404; body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestSMSSendOutcome(t *testing.T) {
 	tests := []struct {
 		name      string

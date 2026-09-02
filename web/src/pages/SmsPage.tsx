@@ -22,6 +22,7 @@ import {
   getThread,
   listContacts,
   listSmsDevices,
+  purgeModemSms,
   sendSms,
   type DeleteThreadQuery,
   type SmsSendResult,
@@ -396,6 +397,34 @@ export default function SmsPage() {
     await refreshCurrent(false);
   }, [loadDevices, refreshCurrent]);
 
+  // 清空所选设备的模块旧短信（模块存储 + 本地记录），对应 DJOneHub 的
+  // "清空模块旧短信"：二手模块可能残留上一任用户的短信。
+  const [purgingDevice, setPurgingDevice] = useState(false);
+  const purgeModemAction = useCallback(async (deviceId: string) => {
+    const confirmed = await confirmDialog(
+      t("将从模块存储和本地记录中删除该设备全部短信，无法恢复。"),
+      t("清空模块旧短信？"),
+      { confirmText: t("清空"), cancelText: t("取消"), type: "danger" },
+    );
+    if (!confirmed) return;
+    setPurgingDevice(true);
+    try {
+      const result = await purgeModemSms(deviceId);
+      await loadContacts(deviceRef.current, false);
+      clearSelection(true);
+      message.success(
+        tl("已清空模块短信") +
+          (result.modemDeleted > 0 || result.localDeleted > 0
+            ? `（模块 ${result.modemDeleted} 条 / 本地 ${result.localDeleted} 条）`
+            : ""),
+      );
+    } catch (e) {
+      message.error(tl("清空失败：") + apiMessage(e));
+    } finally {
+      setPurgingDevice(false);
+    }
+  }, [clearSelection, loadContacts, lang]);
+
   const pollRefresh = useCallback(async () => {
     if (contactsLoadingRef.current || messagesLoadingRef.current || loadingMoreRef.current) return;
     try {
@@ -623,6 +652,16 @@ export default function SmsPage() {
         subtitle={t("通过收发测试验证模组 SMS 收发功能是否正常")}
         actions={
           <div className="flex items-center gap-2">
+            {selectedDevice !== "all" && devices.some((d) => d.id === selectedDevice) ? (
+              <Button
+                variant="text"
+                loading={purgingDevice}
+                onClick={() => void purgeModemAction(selectedDevice)}
+                className="!hidden sm:!inline-flex"
+              >
+                {t("清空模块旧短信")}
+              </Button>
+            ) : null}
             <RefreshButton loading={contactsLoading} onClick={refreshAll} />
             <Button variant="primary" onClick={openNewSms} className="font-bold !border-0" icon={<AddRegular />}>
               {t("发送测试短信")}
