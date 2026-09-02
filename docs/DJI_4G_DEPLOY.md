@@ -83,7 +83,17 @@ SMS 不依赖数据连接：
 
 - 所有自动修复与健康检查均不写 NV 内存、不执行 `AT+QCFG="usbcfg"/"usbnet"` 改写，USB 身份保持出厂 `2ca3:4006`。
 - 模块不支持 eSIM，卡片策略请基于物理 SIM 配置。
-- 若宿主同时运行 ModemManager：安装脚本已自动写入 `/etc/udev/rules.d/90-vocat-dji-modem.rules`，用 `ID_MM_DEVICE_IGNORE=1` 让 ModemManager 忽略本模块（2ca3:4006），避免两个程序竞争 AT/QMI 控制口导致事务超时。手动部署时可按相同方式补一条 udev 规则后 `udevadm control --reload-rules && udevadm trigger`，并给模块断电重插一次以完整生效。
+- 若宿主同时运行 ModemManager：安装脚本已自动写入 `/etc/udev/rules.d/90-vocat-dji-modem.rules`，用 `ID_MM_DEVICE_IGNORE=1` 让 ModemManager 忽略本模块（2ca3:4006），避免两个程序竞争 AT/QMI 控制口导致事务超时。**手动部署（不使用 install.sh）时**，按下面方式手工补上：
+
+  ```bash
+  cat > /etc/udev/rules.d/90-vocat-dji-modem.rules <<'EOF'
+  # VoCat 自管大疆 4G 模块 (2ca3:4006) 的 AT/QMI 接口，屏蔽 ModemManager 竞争
+  ACTION!="remove", SUBSYSTEM=="usb", ATTRS{idVendor}=="2ca3", ATTRS{idProduct}=="4006", ENV{ID_MM_DEVICE_IGNORE}="1"
+  EOF
+  udevadm control --reload-rules && udevadm trigger
+  ```
+
+  应用规则后给模块断电重插一次，让 udev 环境完整生效。OpenWrt 等无 udevadm 的环境通常也不运行 ModemManager，可跳过此步。
 
 ### 9.1 社区"彻底改装"路线与本方案的区别
 
