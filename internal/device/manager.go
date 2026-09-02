@@ -55,6 +55,13 @@ type Manager struct {
 	started      bool
 	devices      map[string]*managedDevice
 	ussdSessions map[string]ussdSession
+
+	// djiRepairMu guards the per-device last-attempt timestamps for the
+	// automatic DJI 4G module binding repair. The repair rebinds sysfs USB
+	// drivers, so it must never run in a tight loop while discovery polls;
+	// a failed attempt is throttled before the next retry.
+	djiRepairMu      sync.Mutex
+	djiRepairAttempt map[string]time.Time
 }
 
 // LockUICC and UnlockUICC allow another in-process UICC client (currently the
@@ -181,6 +188,8 @@ func NewManager(options Options) (*Manager, error) {
 		ussdSessions:   make(map[string]ussdSession),
 		esimRecoveries: make(map[string]chan struct{}),
 		esimCache:      make(map[string]EsimInfo),
+
+		djiRepairAttempt: make(map[string]time.Time),
 	}, nil
 }
 
@@ -233,6 +242,105 @@ func (manager *Manager) Stop(ctx context.Context) error {
 	return errors.Join(closeErrors...)
 }
 
+// djiRepairCooldown throttles automatic DJI rebinding attempts. The factory
+// 2ca3:4006 binding is only lost after a cold boot or a reconnect, so a failed
+// repair must not be hammered by discovery polling.
+const djiRepairCooldown = 2 * time.Minute
+
+// djiNeedsRepair reports whether a discovered candidate is a DJI 4G module in
+// the degraded USB composition that keeps it unusable: qmi_wwan has claimed the
+// serial interfaces, or the AT/QMI nodes are absent entirely.
+func djiNeedsRepair(candidate modem.Candidate) bool {
+	if !modem.IsDJI4GUSB(candidate.VendorID, candidate.ProductID) {
+		return false
+	}
+	if candidate.HardwareKind == "pcsc" {
+		return false
+	}
+	return candidate.DiscoveryIssue != "" ||
+		!candidate.HasATPort() ||
+		strings.TrimSpace(candidate.QMIControl) == ""
+}
+
+// djiRepairDue reports whether the per-device automatic repair throttle has
+// elapsed since the previous attempt, or no attempt was ever recorded.
+func djiRepairDue(last, now time.Time) bool {
+	return last.IsZero() || now.Sub(last) >= djiRepairCooldown
+}
+
+// autoRepairDJIQMI restores the DJI 4G module's factory AT/QMI USB binding when
+// discovery finds exactly one DJI device in a degraded state. It runs only as
+// root on Linux, is throttled per physical device, and re-scans the USB bus on
+// success so the current discovery pass returns the repaired topology instead
+// of a stale candidate.
+func (manager *Manager) autoRepairDJIQMI(ctx context.Context, candidates []modem.Candidate) []modem.Candidate {
+	var degraded *modem.Candidate
+	degradedCount := 0
+	for index := range candidates {
+		if !djiNeedsRepair(candidates[index]) {
+			continue
+		}
+		degradedCount++
+		degraded = &candidates[index]
+	}
+	if degradedCount != 1 || degraded == nil {
+		return candidates
+	}
+	key := strings.TrimSpace(degraded.USBPath)
+	if key == "" {
+		key = degraded.ID
+	}
+	manager.djiRepairMu.Lock()
+	if manager.djiRepairAttempt == nil {
+		manager.djiRepairAttempt = make(map[string]time.Time)
+	}
+	if !djiRepairDue(manager.djiRepairAttempt[key], time.Now()) {
+		manager.djiRepairMu.Unlock()
+		return candidates
+	}
+	manager.djiRepairAttempt[key] = time.Now()
+	manager.djiRepairMu.Unlock()
+
+	if manager.logger != nil {
+		manager.logger.Info("automatic DJI QMI binding repair triggered",
+			"device_id", degraded.ID,
+			"usb_name", degraded.USBPath,
+			"discovery_issue", degraded.DiscoveryIssue,
+		)
+	}
+	repairContext, cancelRepair := manager.withTimeout(ctx, 40*time.Second)
+	result, repairErr := RepairDJIQMI(repairContext)
+	cancelRepair()
+	if repairErr != nil {
+		if manager.logger != nil {
+			manager.logger.Warn("automatic DJI QMI binding repair failed",
+				"device_id", degraded.ID,
+				"error", repairErr,
+			)
+		}
+		return candidates
+	}
+	if manager.logger != nil {
+		manager.logger.Info("automatic DJI QMI binding repair succeeded",
+			"device_id", degraded.ID,
+			"control_device", result.ControlDevice,
+			"at_device", result.ATDevice,
+			"attempts", result.Attempts,
+		)
+	}
+	refreshed, scanErr := manager.discoverer.Discover(ctx)
+	if scanErr != nil || len(refreshed) == 0 {
+		if manager.logger != nil {
+			manager.logger.Warn("DJI QMI binding repair finished but the USB re-scan yielded no candidates",
+				"device_id", degraded.ID,
+				"error", scanErr,
+			)
+		}
+		return candidates
+	}
+	return refreshed
+}
+
 func (manager *Manager) Discover(ctx context.Context) ([]Device, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -256,6 +364,11 @@ func (manager *Manager) Discover(ctx context.Context) ([]Device, error) {
 	if modemErr != nil && len(candidates) == 0 {
 		return nil, modemErr
 	}
+	// A freshly connected DJI 4G module often loses its factory AT/QMI driver
+	// binding on cold boot. Repair it here so the remaining discovery pass sees
+	// the intended ttyUSB AT port and cdc-wdm QMI node instead of a degraded
+	// candidate that cannot be added or driven.
+	candidates = manager.autoRepairDJIQMI(ctx, candidates)
 	seen := make(map[string]struct{}, len(candidates))
 
 	type discoveryEvent struct {

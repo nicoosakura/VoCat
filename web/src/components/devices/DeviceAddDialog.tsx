@@ -1,9 +1,11 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ArrowSyncRegular, SaveRegular } from "@fluentui/react-icons";
 import { cx } from "../../lib/utils";
-import { Button, Input, Modal, Select, Spinner, Tag } from "../ui";
+import { Button, Input, Modal, Select, Spinner, Tag, message } from "../ui";
 import { isQmiControl } from "./shared";
 import { DiscoveredDeviceRow } from "./DiscoveredDeviceRow";
+import { repairDJIQMI } from "./deviceActions";
+import { apiMessage } from "../../api";
 import type { DiscoveredDevice } from "../../types";
 import type { AddDeviceForm } from "./types";
 import { useI18n } from "../../lib/i18n";
@@ -46,9 +48,23 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 export function DeviceAddDialog(props: DeviceAddDialogProps) {
   const { t } = useI18n();
   const { addSelected, addConfig } = props;
+  const [repairingKey, setRepairingKey] = useState("");
   const fixedQmi = isQmiControl(addSelected?.controlPath || addConfig?.controlDevice);
   const isMbim = String(addSelected?.mode || "").toLowerCase() === "mbim";
 	const isReader = addSelected?.hardwareKind === "pcsc" || String(addSelected?.mode || "").toLowerCase() === "pcsc";
+
+  async function handleRepairDJI(device: DiscoveredDevice) {
+    setRepairingKey(discoveryKey(device));
+    try {
+      const result = await repairDJIQMI();
+      message.success(t("DJI QMI 绑定修复成功") + (result.atDevice ? `（${result.atDevice}）` : ""));
+    } catch (err) {
+      message.error(apiMessage(err));
+    } finally {
+      setRepairingKey("");
+      props.onRefresh();
+    }
+  }
 
   useEffect(() => {
     if (fixedQmi && addConfig.deviceBackend !== "qmi") props.onConfigChange({ ...addConfig, deviceBackend: "qmi" });
@@ -108,6 +124,8 @@ export function DeviceAddDialog(props: DeviceAddDialogProps) {
                 modeLabel={modeLabel(d)}
                 isQmi={isQmiMode(d)}
                 onSelect={props.onSelectDevice}
+                onRepairDJI={handleRepairDJI}
+                repairing={repairingKey !== "" && repairingKey === discoveryKey(d)}
               />
             ))}
             {props.unconfiguredDiscovered.length === 0 ? (

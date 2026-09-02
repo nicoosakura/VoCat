@@ -170,6 +170,8 @@ func (s *Server) routeDeviceAPI(w http.ResponseWriter, r *http.Request) bool {
 		return s.handleDiscoveredDevices(w, r)
 	case "devices/actions/rescan":
 		return s.handleDeviceRescan(w, r)
+	case "devices/actions/repair-dji-qmi":
+		return s.handleRepairDJIQMI(w, r)
 	case "device-mgmt/discovered/fix-usbnet":
 		return s.handleFixUSBNet(w, r)
 	}
@@ -472,6 +474,40 @@ func (s *Server) handleDeviceRescan(w http.ResponseWriter, r *http.Request) bool
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{"status": "ok", "devices": len(devices)},
+	})
+	return true
+}
+
+// handleRepairDJIQMI restores the factory 2ca3:4006 AT/QMI USB binding on the
+// DJI 4G module and wakes its QMI control channel. It is the on-demand
+// counterpart to the automatic discovery repair: operators use it to re-run
+// the repair after a reconnect without restarting VoCat. The repair requires
+// root because it rebinds sysfs USB drivers.
+func (s *Server) handleRepairDJIQMI(w http.ResponseWriter, r *http.Request) bool {
+	if !requireMethod(w, r, http.MethodPost) {
+		return true
+	}
+	result, err := device.RepairDJIQMI(r.Context())
+	if err != nil {
+		switch {
+		case errors.Is(err, device.ErrDJIRepairNotRoot):
+			writeError(w, http.StatusForbidden, "repair_requires_root", err.Error())
+		case errors.Is(err, device.ErrDJIRepairUnsupported):
+			writeError(w, http.StatusNotImplemented, "repair_unsupported", err.Error())
+		default:
+			s.writeDeviceError(w, err)
+		}
+		return true
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"repaired":          true,
+			"control_device":    result.ControlDevice,
+			"at_device":         result.ATDevice,
+			"usb_device":        result.USBDevice,
+			"network_interface": result.NetworkInterface,
+			"qmi_probe":         result.QMIProbe,
+		},
 	})
 	return true
 }

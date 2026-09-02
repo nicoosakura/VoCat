@@ -224,6 +224,15 @@ Debian/Ubuntu uses `apt install libqmi-utils`; Arch Linux uses
 driver binding or asserting DTR. If the utility is unavailable, the command
 stops with an installation hint and leaves the current device state untouched.
 
+VoCat repairs the DJI 4G module (first generation, USB `2ca3:4006`) both
+automatically and on demand. When discovery sees such a device without its
+factory AT/QMI binding — which is common after a cold boot or a reconnect —
+the service rebinds interfaces 0-3 to `option` and interface 4 to `qmi_wwan`,
+then wakes the QMI channel with a transient CDC DTR assertion. The add-device
+dialog shows the degraded state with a "Repair DJI QMI Binding" button that
+re-runs the same repair without restarting VoCat. The repair never writes NV
+memory and never changes the USB identity (`2ca3:4006` is kept).
+
 ## Configuration
 
 Vocat reads an optional JSON configuration file from `VOCAT_CONFIG`, then applies `VOCAT_*` environment variables. Environment variables take precedence.

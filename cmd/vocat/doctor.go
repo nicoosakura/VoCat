@@ -32,20 +32,6 @@ type doctorReport struct {
 	Checks []doctorCheck `json:"checks"`
 }
 
-type djiQMIRepairResult struct {
-	USBName          string   `json:"usb_name"`
-	Interface        string   `json:"interface"`
-	USBDevice        string   `json:"usb_device"`
-	OriginalDriver   string   `json:"original_driver,omitempty"`
-	SerialInterfaces []string `json:"serial_interfaces,omitempty"`
-	SerialDevices    []string `json:"serial_devices,omitempty"`
-	ATDevice         string   `json:"at_device,omitempty"`
-	ControlDevice    string   `json:"control_device"`
-	NetworkInterface string   `json:"network_interface,omitempty"`
-	QMIProbe         string   `json:"qmi_probe"`
-	Attempts         int      `json:"attempts"`
-}
-
 func runDoctor(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)

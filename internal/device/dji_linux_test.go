@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package device
 
 import (
 	"context"
@@ -122,12 +122,12 @@ func TestBindDJISerialInterfacesAlreadyCorrect(t *testing.T) {
 
 func TestRetryDJIQMISucceedsAfterTransientFailures(t *testing.T) {
 	attempts := 0
-	result, err := retryDJIQMI(context.Background(), 3, time.Millisecond, func(context.Context) (djiQMIRepairResult, error) {
+	result, err := retryDJIQMI(context.Background(), 3, time.Millisecond, func(context.Context) (QMIRepairResult, error) {
 		attempts++
 		if attempts < 3 {
-			return djiQMIRepairResult{}, errors.New("transient QMI timeout")
+			return QMIRepairResult{}, errors.New("transient QMI timeout")
 		}
-		return djiQMIRepairResult{ControlDevice: "/dev/cdc-wdm0"}, nil
+		return QMIRepairResult{ControlDevice: "/dev/cdc-wdm0"}, nil
 	})
 	if err != nil {
 		t.Fatalf("retryDJIQMI() error = %v", err)
@@ -139,9 +139,9 @@ func TestRetryDJIQMISucceedsAfterTransientFailures(t *testing.T) {
 
 func TestRetryDJIQMIStopsAfterBoundedAttempts(t *testing.T) {
 	attempts := 0
-	_, err := retryDJIQMI(context.Background(), 2, time.Millisecond, func(context.Context) (djiQMIRepairResult, error) {
+	_, err := retryDJIQMI(context.Background(), 2, time.Millisecond, func(context.Context) (QMIRepairResult, error) {
 		attempts++
-		return djiQMIRepairResult{}, errors.New("persistent failure")
+		return QMIRepairResult{}, errors.New("persistent failure")
 	})
 	if err == nil {
 		t.Fatal("retryDJIQMI() unexpectedly succeeded")

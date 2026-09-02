@@ -198,6 +198,13 @@ Debian/Ubuntu 使用 `apt install libqmi-utils`；Arch Linux 使用
 `vocat doctor --repair-dji-qmi` 会在修改 USB 驱动绑定或触发 DTR 之前检查
 `qmicli`。如果工具不可用，命令会给出安装提示并停止，保持设备当前状态不变。
 
+VoCat 对大疆 4G 模块（一代，USB `2ca3:4006`）既支持自动修复，也支持按需
+修复。发现设备时若检测到该模块缺少出厂 AT/QMI 驱动绑定（冷启动或重连后
+很常见），服务会自动把 0-3 号接口绑定到 `option`、4 号接口绑定到
+`qmi_wwan`，并通过一次瞬态 CDC DTR 断言唤醒 QMI 通道。添加设备对话框会
+展示降级状态，并提供“修复 DJI QMI 绑定”按钮，无需重启 VoCat 即可重新
+执行修复。该修复不会写入 NV 内存，也不会改动 USB 身份（保持 `2ca3:4006`）。
+
 ## 配置
 
 Vocat 先从 `VOCAT_CONFIG` 读取可选的 JSON 配置文件,再应用 `VOCAT_*` 环境变量。环境变量优先级更高。

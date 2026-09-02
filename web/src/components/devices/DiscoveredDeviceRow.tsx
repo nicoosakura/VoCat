@@ -1,5 +1,5 @@
 import { cx } from "../../lib/utils";
-import { Tag } from "../ui";
+import { Button, Tag } from "../ui";
 import type { DiscoveredDevice } from "../../types";
 import { useI18n } from "../../lib/i18n";
 
@@ -9,28 +9,42 @@ export function DiscoveredDeviceRow({
   modeLabel,
   isQmi,
   onSelect,
+  onRepairDJI,
+  repairing,
 }: {
   device: DiscoveredDevice;
   selected: boolean;
   modeLabel: string;
   isQmi: boolean;
   onSelect: (d: DiscoveredDevice) => void;
+  onRepairDJI?: (d: DiscoveredDevice) => void;
+  repairing?: boolean;
 }) {
   const { t } = useI18n();
   const degraded = !!device.degraded;
+  const isDJI = device.deviceType === "dji_4g";
   const displayName = device.readerName || device.driverName || device.netInterface || device.controlPath || t("未知设备");
   const discoveryMessage = device.discoveryIssue === "pcsc_service_unavailable"
     ? t("系统已发现 USB 读卡器，但 PC/SC 服务未运行；请安装并启动 pcscd 后重新扫描。")
     : device.discoveryIssue === "pcsc_driver_missing"
       ? t("系统已发现 USB 读卡器，但 PC/SC 驱动未加载；请安装 libccid 或厂商驱动后重新扫描。")
-      : device.discoveryIssue === "at_port_missing"
-        ? t("已发现该模组，但未找到 AT 串口：通常是 option 驱动未认该 PID 或模组处于 MBIM/RNDIS 组态。可 `echo 2c7c <pid> | sudo tee /sys/bus/usb-serial/drivers/option1/new_id` 后重扫，或用 AT+QCFG 切到 QMI+AT 组态。")
-        : "";
+      : degraded && isDJI
+        ? t("已发现大疆 4G 模块，但 AT/QMI 接口未绑定到正确驱动（USB 绑定在冷启动或重连后可能丢失）。点击“修复 DJI QMI 绑定”恢复出厂绑定（需 root 权限）。")
+        : device.discoveryIssue === "at_port_missing"
+          ? t("已发现该模组，但未找到 AT 串口：通常是 option 驱动未认该 PID 或模组处于 MBIM/RNDIS 组态。可 `echo 2c7c <pid> | sudo tee /sys/bus/usb-serial/drivers/option1/new_id` 后重扫，或用 AT+QCFG 切到 QMI+AT 组态。")
+          : "";
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-disabled={degraded}
       onClick={() => onSelect(device)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(device);
+        }
+      }}
       className={cx(
         "w-full rounded-xl border p-3 text-left",
         degraded && "cursor-not-allowed border-amber-200 bg-amber-50 opacity-85",
@@ -47,7 +61,25 @@ export function DiscoveredDeviceRow({
           ? `USB: ${device.usbPath || "--"} · VID:PID ${device.vendorId.toString(16).padStart(4, "0")}:${device.productId.toString(16).padStart(4, "0")}`
           : `${device.controlPath} · AT: ${device.atPort || "--"} · IMEI: ${device.imei || "--"} · USB: ${device.usbPath || "--"}`}
       </div>
-      {degraded ? <div className="mt-1 text-xs text-amber-700">{discoveryMessage || t("未找到可用的 AT 端口（串口可能仍在枚举），系统会自动重试；也可点击重新扫描。")}</div> : null}
-    </button>
+      {degraded ? (
+        <div className="mt-1 flex items-start justify-between gap-3">
+          <div className="text-xs text-amber-700">{discoveryMessage || t("未找到可用的 AT 端口（串口可能仍在枚举），系统会自动重试；也可点击重新扫描。")}</div>
+          {isDJI && onRepairDJI ? (
+            <Button
+              size="small"
+              loading={repairing}
+              disabled={repairing}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRepairDJI(device);
+              }}
+              className="shrink-0"
+            >
+              {t("修复 DJI QMI 绑定")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

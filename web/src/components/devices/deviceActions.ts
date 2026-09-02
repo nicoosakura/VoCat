@@ -19,6 +19,20 @@ export function disableVoWiFi(deviceId: string) {
 export function setFlightMode(deviceId: string, enabled: boolean) {
   return ok(api(`/devices/${deviceId}/flight-mode`, { method: "PATCH", body: { enabled } }));
 }
+export interface DJIQMIRepairResult {
+  repaired: boolean;
+  controlDevice?: string;
+  atDevice?: string;
+  usbDevice?: string;
+  networkInterface?: string;
+  qmiProbe?: string;
+}
+// Restores the factory 2ca3:4006 AT/QMI USB bindings on a DJI 4G module. The
+// automatic discovery path already does this; this endpoint re-runs it on
+// demand after a reconnect without restarting VoCat.
+export function repairDJIQMI() {
+  return api<DJIQMIRepairResult>("/devices/actions/repair-dji-qmi", { method: "POST" });
+}
 export function getCardPolicy(iccid: string) {
   return api<CardPolicy>(`/cards/${iccid}/policy`);
 }

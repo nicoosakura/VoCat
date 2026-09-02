@@ -1122,6 +1122,10 @@ export const EN_DICT: Record<string, string> = {
   "410 WiFi 棒（高通芯片）": "410 WiFi Dongle (Qualcomm)",
   "大疆 4G 模块（移远芯片）": "DJI 4G Module (Quectel)",
   "PCIe EC20/EC25（移远芯片）": "PCIe EC20/EC25 (Quectel)",
+  "修复 DJI QMI 绑定": "Repair DJI QMI Binding",
+  "DJI QMI 绑定修复成功": "DJI QMI binding repaired",
+  "已发现大疆 4G 模块，但 AT/QMI 接口未绑定到正确驱动（USB 绑定在冷启动或重连后可能丢失）。点击“修复 DJI QMI 绑定”恢复出厂绑定（需 root 权限）。":
+    "DJI 4G module detected, but its AT/QMI interfaces are not bound to the correct drivers (USB bindings can be lost after a cold boot or reconnect). Click \"Repair DJI QMI Binding\" to restore the factory bindings (root required).",
 
   // ---- Per-Profile phone display override ----
   "自定义手机号": "Custom Phone Number",
