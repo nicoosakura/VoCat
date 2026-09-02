@@ -4,7 +4,7 @@
 
 ## 1. 原理一句话
 
-模块内是 EC20 级别的调制解调器，本体没有可运行 VoCat 的用户态系统。VOcat 运行在模块接入的 Linux 主机（路由器 / NAS / 软路由）上，通过 USB 上的 AT 串口与 QMI 控制通道管理模块。社区常说的"刷机"其实只是改 USB 身份，本方案保持出厂 `2ca3:4006` 不变。
+模块内是移远 Quectel EG25-G（QDC507，高通 MDM9x07）级别的调制解调器，本体没有可运行 VoCat 的用户态系统。VOcat 运行在模块接入的 Linux 主机（路由器 / NAS / 软路由）上，通过 USB 上的 AT 串口与 QMI 控制通道管理模块。社区常说的"刷机"其实只是改 USB 身份，本方案保持出厂 `2ca3:4006` 不变。
 
 ## 2. 接线
 
@@ -49,7 +49,7 @@ sudo vocat doctor --repair-dji-qmi
 ## 5. 添加设备
 
 1. 顶部进入「设备管理」→「添加设备」。
-2. 列表里应出现 `DJI 4G Module (Quectel EC20)`（若显示 "Android/Android"，仍可识别为该模块，身份已归一化）。
+2. 列表里应出现 `DJI 4G Module (Quectel EG25-G)`（若显示 "Android/Android"，仍可识别为该模块，身份已归一化）。
 3. 若该行显示降级提示，点"修复 DJI QMI 绑定"，等待成功后再选中。
 4. 选择设备类型「大疆 4G 模块（移远芯片）」，填 ID 与名称，保存。
 
@@ -82,3 +82,14 @@ SMS 不依赖数据连接：
 - 所有自动修复与健康检查均不写 NV 内存、不执行 `AT+QCFG="usbcfg"/"usbnet"` 改写，USB 身份保持出厂 `2ca3:4006`。
 - 模块不支持 eSIM，卡片策略请基于物理 SIM 配置。
 - 若宿主同时运行 ModemManager，修复可能与之竞争接口绑定；不推荐两者同时接管同一模块。
+
+### 9.1 社区"彻底改装"路线与本方案的区别
+
+社区教程（36kr / 搜狐等 2026-08 报道）普遍走两条"彻底改装"路线，**本方案均不采用**，原因如下：
+
+| 社区路线 | 操作 | 后果 | 本方案为什么不做 |
+| --- | --- | --- | --- |
+| 切 usbnet | 电脑串口工具（如 LLCOM）连 `Quectel USB AT Port`，发 `AT+QCFG="usbnet",1` 后重启模块 | 模块以 `rndis/ecm` 形式枚举，Windows/macOS/iPad 免驱直认网卡 | 改写后 QMI 接口消失，VoCat 无法再走 QMI 控制通道；且属持久性 NV 改写，如需恢复要再发 `AT+QCFG="usbnet",0`，误操作有变砖风险 |
+| 改 USB ID | 通过 AT/DFU 改写 VID:PID（如改成 2c7c:0125） | 摆脱大疆专有枚举，通用 Quectel 驱动直认 | 同样改变出厂身份且不可无痕回退；VoCat 的 `2ca3:4006` 自动修复依赖出厂 ID |
+
+本方案保持模块出厂 `2ca3:4006` 不变，只在 Linux 宿主侧做 driver 绑定修复（0-3 → `option`，4 → `qmi_wwan`），Windows/macOS 用户如想直连 iPad/MacBook，仍可自行按社区路线改装，改装后 VoCat 的 DJI 模块功能不再适用，但模块本身作为普通 USB 网卡使用不受影响。
