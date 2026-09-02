@@ -58,7 +58,7 @@
 | F2 | 已配置设备周期健康巡检 | 对 `DeviceType=dji_4g` 且已配置的设备，后台每 60s 校验 AT 与 QMI 节点是否仍存在，**并校验接口归属（0-3=option、4=qmi_wwan）**——`option` 抢先接管 MI_04 时节点尚未消失但接口已被抢走，归属校验可更早发现漂移；任一异常触发一次带降温的重新发现，落入现有自动修复流程。 |
 | F3 | DJI 身份归一化 | 发现阶段对 `2ca3:4006` 且描述符为 "Android"/空 的设备，将制造商/产品名归一化为 "DJI 4G Module (Quectel)" 的中文显示。 |
 | F4 | 多 DJI 模块支持 | 修复按 USB 路径定位单台设备；自动修复去掉"总线上恰一台"限制，改为逐台判定降级、逐台修复、逐台降温。 |
-| F5 | USB 热插拔事件监听 | 监听内核 uevent（`ACTION=add/remove` + `2ca3:4006`），触发后台重新发现；无 uevent 权限或非 Linux 时静默回退到现有轮询。 |
+| F5 | USB 热插拔事件监听 | 监听内核 uevent（`ACTION=add/remove/change` + `2ca3:4006`），精确解析 `PRODUCT=`/`ID_*` 字段防误触发，500ms 去抖窗口把重枚举风暴合并为一次扫描；触发后台重新发现；无 uevent 权限或非 Linux 时静默回退到现有轮询。 |
 | F6 | 拨号引导 | 已配设备 QMI 数据连接为断开且网络接口 DOWN 时，在设备页显示"需配置 APN 并开启数据网络"的引导条，带跳转 APN 设置入口。 |
 | F7 | 修复审计记录 | 每次自动/手动修复写入已有的设备事件表，健康卡片展示最近 5 条（时间、结果、接口、AT/QMI 节点）。 |
 | F8 | 链路质量诊断 | 对启用数据链路的 DJI 设备提供一键延迟探测（复用现有 SOCKS/UDP 探测路径），展示结果与历史。 |
@@ -115,8 +115,8 @@ stateDiagram-v2
 
 **业务逻辑**：
 
-- F2 巡检：后台协程每 60s 遍历已配置 `dji_4g` 设备，对每台检查其配置的 AT 端口与 QMI 控制节点在 `/dev` 下是否仍存在；任一缺失 → 调用一次 `Manager.Discover()`（带独立降温，避免与修复自身耦合）。
-- F5 热插拔：Linux 上新增 netlink `uevent` 监听（`netlink.KernelSubscribe(Uevent)`），过滤 `2ca3:4006` 的 add/remove，异步触发 `Discover()`；非 Linux 或无权限时仅打日志，依赖现有调用路径。
+- F2 巡检：后台协程每 60s 遍历已配置 `dji_4g` 设备，对每台先检查接口归属（0-3=`option`、4=`qmi_wwan`，读 sysfs `driver` 符号链接），再检查其配置的 AT 端口与 QMI 控制节点在 `/dev` 下是否仍存在；任一异常 → 调用一次 `Manager.Discover()`（带独立降温，避免与修复自身耦合）。归属校验能捕捉到节点尚未消失、但 `option` 已抢先接管 MI_04 的漂移窗口。
+- F5 热插拔：Linux 上新增 netlink `uevent` 监听（`netlink.KernelSubscribe(Uevent)`），**精确匹配** `PRODUCT=2ca3/4006/…`（或成对的 `ID_VENDOR_ID=2CA3`+`ID_MODEL_ID=4006`），避免其他设备描述符中出现的 "2ca3"/"4006" 子串误触发；匹配事件进入 **500ms 去抖窗口**，重枚举风暴（add/remove/change 连续到达）合并为一次 `Discover`；非 Linux 或无权限时仅打日志，依赖现有调用路径。
 
 **规则约束**：F2 巡检与 F5 监听都只触发"重新发现"，真正的驱动重绑仍由现有 `autoRepairDJIQMI` 决定，降温（2 分钟）与"仅单台降级才修复之外的逐台修复"规则在 F4 中统一。巡检间隔与降温时长做成包级常量，便于测试缩短。
 

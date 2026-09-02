@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -15,12 +16,21 @@ import (
 // burst of interface events cannot truncate the enclosing device event.
 const djiUeventBufferSize = 64 * 1024
 
+// djiUeventDebounce is how long the watch waits after the first matching DJI
+// event before firing the callback. A module reboot re-enumerates through a
+// burst of add/remove/change events with separate interface sub-events; the
+// quiet window coalesces that storm into one discovery pass so the scan runs
+// against fully enumerated interfaces instead of a half-visible device.
+const djiUeventDebounce = 500 * time.Millisecond
+
 // WatchDJIUSBEvents subscribes to kernel uevents and invokes onEvent whenever
 // a DJI 4G module (2ca3:4006) is added, removed, or changes at the USB device
-// level. It blocks until ctx is cancelled. Callbacks are coalesced: if one is
-// still running, a new event is dropped instead of stacking concurrent
-// discovery passes. A missing subscription is always recoverable — callers
-// keep their existing polling path and treat an error as "watch unavailable".
+// level. It blocks until ctx is cancelled. A 500 ms coalescing window folds a
+// re-enumeration burst into a single callback, and callbacks are non-
+// reentrant: if one is still running, a new event is dropped instead of
+// stacking concurrent discovery passes. A missing subscription is always
+// recoverable — callers keep their existing polling path and treat an error
+// as "watch unavailable".
 func WatchDJIUSBEvents(ctx context.Context, onEvent func()) error {
 	if onEvent == nil {
 		return errors.New("DJI uevent callback is nil")
@@ -79,10 +89,49 @@ func WatchDJIUSBEvents(ctx context.Context, onEvent func()) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case payload := <-events:
-			if !djiUeventMatch(payload) {
+			// Coalesce a re-enumeration burst: keep folding matching events
+			// into a pending debounce window, then fire the callback once the
+			// storm goes quiet or the window expires.
+			drainDJIUeventBurst(ctx, events, djiUeventDebounce, payload, drain)
+		}
+	}
+}
+
+// drainDJIUeventBurst consumes the first matching uevent, folds any further
+// matching uevents that arrive within each debounce window into the same
+// callback, and finally runs drain(). The quiet gap after the re-enumeration
+// storm guarantees the callback sees fully enumerated interfaces instead of a
+// half-visible device.
+func drainDJIUeventBurst(
+	ctx context.Context,
+	events <-chan []byte,
+	debounce time.Duration,
+	first []byte,
+	drain func(),
+) {
+	if !djiUeventMatch(first) {
+		return
+	}
+	timer := time.NewTimer(debounce)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case laterPayload := <-events:
+			if !djiUeventMatch(laterPayload) {
 				continue
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(debounce)
+		case <-timer.C:
 			drain()
+			return
 		}
 	}
 }

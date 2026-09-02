@@ -19,8 +19,33 @@ func TestDJIUeventMatch(t *testing.T) {
 			want:    true,
 		},
 		{
+			name:    "DJI device change via ID aliases",
+			payload: "ACTION=change\x00DEVPATH=/devices/pci0000:00/usb1/1-4.3\x00SUBSYSTEM=usb\x00ID_VENDOR_ID=2CA3\x00ID_MODEL_ID=4006\x00",
+			want:    true,
+		},
+		{
+			name:    "upper-case PRODUCT still matches",
+			payload: "ACTION=add\x00DEVPATH=/devices/usb1/1-4.3\x00PRODUCT=2CA3/4006/0100\x00",
+			want:    true,
+		},
+		{
 			name:    "other USB vendor",
 			payload: "ACTION=add\x00DEVPATH=/devices/pci0000:00/usb1/1-2\x00SUBSYSTEM=usb\x00PRODUCT=2c7c/0125/0306\x00",
+			want:    false,
+		},
+		{
+			name:    "loose 2ca3 substring in an unrelated field must not match",
+			payload: "ACTION=add\x00DEVPATH=/devices/usb1/1-2\x00SUBSYSTEM=usb\x00PRODUCT=2c7c/0125/0406\x00MODALIAS=foo2ca3bar4006\x00",
+			want:    false,
+		},
+		{
+			name:    "matching vendor but wrong model ID alone must not match",
+			payload: "ACTION=add\x00DEVPATH=/devices/usb1/1-2\x00ID_VENDOR_ID=2CA3\x00ID_MODEL_ID=0125\x00",
+			want:    false,
+		},
+		{
+			name:    "matching model but no vendor field must not match",
+			payload: "ACTION=add\x00DEVPATH=/devices/usb1/1-2\x00ID_MODEL_ID=4006\x00",
 			want:    false,
 		},
 		{
