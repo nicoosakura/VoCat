@@ -240,19 +240,73 @@ func repairDJIQMIAt(ctx context.Context, sysRoot, devRoot, qmicli, targetUSBName
 	// The requested driver topology is now established. A later DMS timeout is
 	// a QMI/USBIP readiness problem, so do not roll interface 4 back to option.
 	interfaceDetached = false
-	time.Sleep(250 * time.Millisecond)
-	probeContext, cancelProbe := context.WithTimeout(ctx, 8*time.Second)
-	output, probeErr := exec.CommandContext(probeContext, qmicli, "-d", result.ControlDevice, "--dms-get-operating-mode").CombinedOutput()
-	probeContextErr := probeContext.Err()
-	cancelProbe()
-	result.QMIProbe = strings.TrimSpace(string(output))
-	if probeErr != nil {
+	result.QMIProbe, returnErr = probeDJIQMIReady(ctx, qmicli, result.ControlDevice)
+	if returnErr != nil {
+		return result, returnErr
+	}
+	return result, nil
+}
+
+// probeDJIQMIReady runs the DMS operating-mode probe that proves the QMI
+// control channel answers after a DTR wake. Right after a rebind the QDC507
+// baseband may still be mid-restart: its first responses arrive as an endpoint
+// hangup or a QMI operation timeout rather than a clean operating-mode value
+// (community measurements put the readiness window at roughly 10-50 seconds).
+// Probe failures that look like "not ready yet" are retried until the modem
+// really answers or the surrounding repair context budget runs out.
+func probeDJIQMIReady(ctx context.Context, qmicli, controlDevice string) (string, error) {
+	probeTimeout := 8 * time.Second
+	retryDelay := 3 * time.Second
+	for {
+		probeContext, cancelProbe := context.WithTimeout(ctx, probeTimeout)
+		output, probeErr := exec.CommandContext(probeContext, qmicli, "-d", controlDevice, "--dms-get-operating-mode").CombinedOutput()
+		probeContextErr := probeContext.Err()
+		cancelProbe()
+		lastOutput := strings.TrimSpace(string(output))
+		if probeErr == nil {
+			return lastOutput, nil
+		}
 		if probeContextErr != nil {
 			probeErr = errors.Join(probeErr, probeContextErr)
 		}
-		return result, fmt.Errorf("DMS readiness check after DTR repair: %w: %s", probeErr, result.QMIProbe)
+		if !djiQMIReadyTransient(probeErr, lastOutput) {
+			return lastOutput, fmt.Errorf("DMS readiness check after DTR repair: %w: %s", probeErr, lastOutput)
+		}
+		if ctx.Err() != nil {
+			return lastOutput, fmt.Errorf("DMS readiness check after DTR repair: %w: %s",
+				errors.Join(probeErr, ctx.Err()), lastOutput)
+		}
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return lastOutput, fmt.Errorf("DMS readiness check after DTR repair: %w: %s",
+				errors.Join(probeErr, ctx.Err()), lastOutput)
+		case <-timer.C:
+		}
 	}
-	return result, nil
+}
+
+// djiQMIReadyTransient reports whether a qmicli DMS failure is the baseband's
+// "still waking up" signature rather than a real binding problem. Endpoint
+// disconnects and transaction timeouts reappear for tens of seconds after a
+// module soft-restart, so the readiness probe must retry them instead of
+// reporting a failed repair.
+func djiQMIReadyTransient(err error, output string) bool {
+	blob := strings.ToLower(fmt.Sprintf("%s %s", err, output))
+	for _, marker := range []string{
+		"endpoint hangup",
+		"qmi operation timed out",
+		"transaction timed out",
+		"timed out",
+		"device or resource busy",
+		"not connected",
+	} {
+		if strings.Contains(blob, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func bindDJIQMIInterface(driverRoot, interfacePath, interfaceName string) (returnErr error) {

@@ -102,6 +102,19 @@ func checkConfiguredDJIHealth(ctx context.Context, logger *slog.Logger, database
 					"at_port", atPath,
 					"qmi_control", qmiPath,
 				)
+				break
+			}
+			// Node existence alone can miss a silently stolen interface: before
+			// the cdc-wdm node disappears, "option" has already taken over
+			// MI_04 (or qmi_wwan took a serial MI). Check the live driver
+			// binding so the drift is caught while the node still exists.
+			topology, topoErr := device.DJITopology("/sys", usbPath)
+			if topoErr == nil && djiTopologyMisbound(topology) {
+				needRescan = true
+				logger.Info("configured DJI module interface binding drifted; re-scanning",
+					"device_id", stored.ID,
+					"usb_path", usbPath,
+				)
 			}
 			break
 		}
@@ -139,4 +152,25 @@ func watchDJIUSBEvents(ctx context.Context, logger *slog.Logger, manager *device
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// djiTopologyMisbound reports whether a DJI 4G module's USB interfaces have
+// drifted away from the factory composition (0-3 -> option, 4 -> qmi_wwan).
+// It ignores transient states ("missing" interfaces, unbound drivers) so the
+// health poller only reacts to a real driver takeover, not to a module that is
+// mid-enumeration or freshly inserted.
+func djiTopologyMisbound(topology device.DJIUSBTopology) bool {
+	for _, iface := range topology.Interfaces {
+		if iface.Driver == "" || iface.Driver == "missing" {
+			continue
+		}
+		want := "qmi_wwan"
+		if iface.Index != 4 {
+			want = "option"
+		}
+		if !strings.EqualFold(iface.Driver, want) {
+			return true
+		}
+	}
+	return false
 }

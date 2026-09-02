@@ -150,3 +150,38 @@ func TestRetryDJIQMIStopsAfterBoundedAttempts(t *testing.T) {
 		t.Fatalf("attempts = %d, want 2", attempts)
 	}
 }
+
+func TestDJIQMIReadyTransientMarksBasebandWakeup(t *testing.T) {
+	transient := []struct {
+		err    string
+		output string
+	}{
+		{"endpoint hangup", ""},
+		{"QMI operation timed out", ""},
+		{"consume message: QMI operation timed out: Failed", ""},
+		{"", "QMI operation timed out: Failed"},
+		{"", "endpoint desc: endpoint hangup"},
+		{"cannot open QMI device", "Device or resource busy"},
+	}
+	for _, entry := range transient {
+		if !djiQMIReadyTransient(errors.New(entry.err), entry.output) {
+			t.Errorf("djiQMIReadyTransient(%q, %q) = false, want true (baseband wake-up)", entry.err, entry.output)
+		}
+	}
+}
+
+func TestDJIQMIReadyTransientRejectsPersistentFailures(t *testing.T) {
+	persistent := []struct {
+		err    string
+		output string
+	}{
+		{"operation not supported by device", ""},
+		{"no such file or directory", ""},
+		{"", "GDBus.Error:org.freedesktop.ModemManager1.Error.Core.NotFound"},
+	}
+	for _, entry := range persistent {
+		if djiQMIReadyTransient(errors.New(entry.err), entry.output) {
+			t.Errorf("djiQMIReadyTransient(%q, %q) = true, want false", entry.err, entry.output)
+		}
+	}
+}

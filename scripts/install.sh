@@ -621,11 +621,31 @@ enable_and_start() {
     die "vocat 服务启动失败。" "The vocat service failed to start."
 }
 
+# --- DJI 4G module udev rule -------------------------------------------------
+# VoCat owns the DJI 4G module's AT and QMI control ports. A competing
+# ModemManager probing the same device drags both control channels into
+# timeouts, so the installer marks the module ignored by ModemManager.
+# OpenWrt without udevadm simply skips this step.
+install_dji_udev_rules() {
+    command -v udevadm >/dev/null 2>&1 || return 0
+    local rules="/etc/udev/rules.d/90-vocat-dji-modem.rules"
+    cat > "$rules" <<'EOF'
+# VoCat manages the DJI 4G module (2ca3:4006) AT/QMI interfaces itself.
+# Keep ModemManager away to avoid control-channel contention.
+ACTION!="remove", SUBSYSTEM=="usb", ATTRS{idVendor}=="2ca3", ATTRS{idProduct}=="4006", ENV{ID_MM_DEVICE_IGNORE}="1"
+EOF
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=usb >/dev/null 2>&1 || true
+    msg "已写入 udev 规则：ModemManager 将忽略大疆 4G 模块 (2ca3:4006)。" \
+        "udev rule installed: ModemManager will ignore the DJI 4G module (2ca3:4006)."
+}
+
 # --- Main --------------------------------------------------------------------
 detect_arch
 install_qmi_support
 install_pcsc_support
 check_vowifi_environment
+install_dji_udev_rules
 if [ "$CHECK_ENV" -eq 1 ]; then
     msg "VoCat 运行环境检查完成。" "VoCat host environment check completed."
     exit 0

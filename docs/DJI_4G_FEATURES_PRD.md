@@ -55,7 +55,7 @@
 | # | 模块 | 功能描述 |
 | --- | --- | --- |
 | F1 | DJI USB 组态健康卡片 | 设备详情页显示模块的 5 段 USB 拓扑（接口号 → 驱动 → 设备节点）、当前绑定时长，内嵌"修复 DJI QMI 绑定"与"重新扫描"入口，展示最近一次修复结果与时间。 |
-| F2 | 已配置设备周期健康巡检 | 对 `DeviceType=dji_4g` 且已配置的设备，后台每 60s 校验 AT 与 QMI 节点是否仍存在；缺失时触发一次带降温的重新发现，落入现有自动修复流程。 |
+| F2 | 已配置设备周期健康巡检 | 对 `DeviceType=dji_4g` 且已配置的设备，后台每 60s 校验 AT 与 QMI 节点是否仍存在，**并校验接口归属（0-3=option、4=qmi_wwan）**——`option` 抢先接管 MI_04 时节点尚未消失但接口已被抢走，归属校验可更早发现漂移；任一异常触发一次带降温的重新发现，落入现有自动修复流程。 |
 | F3 | DJI 身份归一化 | 发现阶段对 `2ca3:4006` 且描述符为 "Android"/空 的设备，将制造商/产品名归一化为 "DJI 4G Module (Quectel)" 的中文显示。 |
 | F4 | 多 DJI 模块支持 | 修复按 USB 路径定位单台设备；自动修复去掉"总线上恰一台"限制，改为逐台判定降级、逐台修复、逐台降温。 |
 | F5 | USB 热插拔事件监听 | 监听内核 uevent（`ACTION=add/remove` + `2ca3:4006`），触发后台重新发现；无 uevent 权限或非 Linux 时静默回退到现有轮询。 |
@@ -64,6 +64,8 @@
 | F8 | 链路质量诊断 | 对启用数据链路的 DJI 设备提供一键延迟探测（复用现有 SOCKS/UDP 探测路径），展示结果与历史。 |
 | F9 | 接入部署文档 | 编写"模块接线 → 安装 VoCat → 自动修复 → 添加设备 → SMS/拨号"的完整指南，含每步验证命令。 |
 | F10 | DJI 能力矩阵 | 按设备类型展示功能支持矩阵（SMS / 数据 / 飞行模式 / VoWiFi / eSIM），标注 DJI 模块不支持 eSIM、SMS 可独立于数据工作等事实。 |
+| F11 | 基带就绪容错 | 修复后 DMS 就绪探测对 `endpoint hangup` / QMI 事务超时等"基带还没醒"的暂时性失败自动重试（QDC507 软重启后有约 10-50s 就绪空窗），不误报修复失败。 |
+| F12 | ModemManager 隔离 | 安装脚本自动写入 udev 规则（`ID_MM_DEVICE_IGNORE=1`），让 ModemManager 忽略 2ca3:4006，避免竞争 AT/QMI 控制口。 |
 
 ## 5. 模块详述
 
@@ -169,7 +171,7 @@ F9 是一份 Markdown 部署指南（中文优先），覆盖：模块接线（U
 | 功能 | 状态 | 关键位置 |
 | --- | --- | --- |
 | F1 健康卡片 | 已实现 | `internal/device/dji_topology_linux.go` + `GET /api/devices/{id}/dji-topology` + `DjiHealthCard.tsx` |
-| F2 周期巡检 | 已实现 | `cmd/vocat/dji_health.go`（60s 巡检已配置设备的 /dev 节点） |
+| F2 周期巡检 | 已实现 | `cmd/vocat/dji_health.go`（60s 巡检已配置设备的 /dev 节点 + 接口归属校验 `djiTopologyMisbound`） |
 | F3 身份归一化 | 已实现 | `internal/modem/discovery.go` normalizeUSBIdentity 扩展 |
 | F4 多模块 | 已实现 | `RepairDJIQMIFor(usbPath)` 逐台修复 + 逐台降温 |
 | F5 热插拔监听 | 已实现 | `internal/device/uevent_linux.go`（非 Linux 静默回退轮询） |
@@ -178,3 +180,5 @@ F9 是一份 Markdown 部署指南（中文优先），覆盖：模块接线（U
 | F8 链路诊断 | 已实现 | `internal/server/latency_api.go` + `POST /api/devices/{id}/latency-test` |
 | F9 部署文档 | 已实现 | `docs/DJI_4G_DEPLOY.md` |
 | F10 能力矩阵 | 已实现 | `DjiHealthCard.tsx` 功能能力标签组 |
+| F11 基带就绪容错 | 已实现 | `internal/device/dji_linux.go` probeDJIQMIReady 对暂时性失败重试 |
+| F12 ModemManager 隔离 | 已实现 | `scripts/install.sh` 写入 `/etc/udev/rules.d/90-vocat-dji-modem.rules` |

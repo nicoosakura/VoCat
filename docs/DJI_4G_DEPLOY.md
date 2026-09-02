@@ -44,7 +44,9 @@ done
 sudo vocat doctor --repair-dji-qmi
 ```
 
-设备运行中若因 USBIP 重连等原因掉绑定，VoCat 每 60 秒巡检一次已配置模块的 /dev 节点，缺失即自动重扫并触发修复；热插拔事件（开机后新增 uevent 监听）也会触发同样流程。也可以随时在设备详情页的"DJI 4G 模块 USB 组态"卡片点"修复 DJI QMI 绑定"。
+设备运行中若因 USBIP 重连等原因掉绑定，VoCat 每 60 秒巡检一次已配置模块的 /dev 节点，**同时校验接口归属（0-3 必须是 `option`、4 必须是 `qmi_wwan`）**：`option` 驱动抢先接管 MI_04 时，cdc-wdm 节点尚未消失但接口已被抢走，仅查节点会漏检，归属校验能更早发现漂移并触发重扫。热插拔事件（开机后新增 uevent 监听）也会触发同样流程。也可以随时在设备详情页的"DJI 4G 模块 USB 组态"卡片点"修复 DJI QMI 绑定"。
+
+> 注意：修复后 QMI 唤醒存在基带就绪空窗。QDC507 软重启后约 10-50 秒内 QMI 通道会短暂不可用（`endpoint hangup` / 事务超时），VoCat 的 DMS 就绪检查会自动重试这些"还没醒"的失败，而不是立即报修复失败。若手动运行 `vocat doctor --repair-dji-qmi` 在此窗口内报 timeout，等待半分钟左右重试即可，不必视为驱动又坏了。
 
 ## 5. 添加设备
 
@@ -81,7 +83,7 @@ SMS 不依赖数据连接：
 
 - 所有自动修复与健康检查均不写 NV 内存、不执行 `AT+QCFG="usbcfg"/"usbnet"` 改写，USB 身份保持出厂 `2ca3:4006`。
 - 模块不支持 eSIM，卡片策略请基于物理 SIM 配置。
-- 若宿主同时运行 ModemManager，修复可能与之竞争接口绑定；不推荐两者同时接管同一模块。
+- 若宿主同时运行 ModemManager：安装脚本已自动写入 `/etc/udev/rules.d/90-vocat-dji-modem.rules`，用 `ID_MM_DEVICE_IGNORE=1` 让 ModemManager 忽略本模块（2ca3:4006），避免两个程序竞争 AT/QMI 控制口导致事务超时。手动部署时可按相同方式补一条 udev 规则后 `udevadm control --reload-rules && udevadm trigger`，并给模块断电重插一次以完整生效。
 
 ### 9.1 社区"彻底改装"路线与本方案的区别
 
