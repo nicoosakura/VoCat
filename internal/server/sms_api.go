@@ -1014,7 +1014,7 @@ func (s *Server) StartSMSSyncLoop(ctx context.Context, interval time.Duration) {
 }
 
 func storedSMSResponse(message store.SMSMessage) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"id":             message.ID,
 		"message_id":     message.MessageID,
 		"device_id":      message.DeviceID,
@@ -1035,6 +1035,14 @@ func storedSMSResponse(message store.SMSMessage) map[string]any {
 		"parts_total":    message.PartsTotal,
 		"delivery_state": message.DeliveryState,
 	}
+	// 入站短信附带验证码提取结果，前端气泡上直接高亮一键复制。
+	direction := strings.ToLower(message.Direction)
+	if direction == "inbound" || direction == "received" || direction == "in" {
+		if code := extractSMSVerificationCode(message.Body); code != "" {
+			result["verification_code"] = code
+		}
+	}
+	return result
 }
 
 func reverseSMS(messages []store.SMSMessage) {

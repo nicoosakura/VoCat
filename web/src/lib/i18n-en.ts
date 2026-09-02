@@ -757,6 +757,7 @@ export const EN_DICT: Record<string, string> = {
   "切换浅色模式": "Switch to light mode",
   "切换深色模式": "Switch to dark mode",
   "删除短信 ": "Delete message ",
+  "点击复制验证码": "Click to copy verification code",
   "加载当前配置失败": "Failed to load current config",
   "加载设备信息失败": "Failed to load device info",
   "升序": "Ascending",

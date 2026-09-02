@@ -1,7 +1,8 @@
 import type { PointerEvent, RefObject, UIEvent, KeyboardEvent } from "react";
-import { DeleteRegular, SendRegular } from "@fluentui/react-icons";
+import { CopyRegular, DeleteRegular, SendRegular } from "@fluentui/react-icons";
 import { Button, EmptyState, Textarea } from "../ui";
 import { cx } from "../../lib/utils";
+import { copyText } from "../devices/shared";
 import type { SMSMessage } from "../../types";
 import {
   messageBody,
@@ -64,6 +65,31 @@ function DeleteMsgButton({
       className={cx("sms-danger-ghost-btn sms-delete-trigger sms-message-delete-btn", !canHover && "sms-delete-visible")}
       icon={<DeleteRegular />}
     />
+  );
+}
+
+// VerificationCodeBadge 高亮短信中的验证码并支持一键复制（对应 DJOneHub 的验证码提取能力）。
+function VerificationCodeBadge({ code }: { code: string }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      title={t("点击复制验证码")}
+      aria-label={t("点击复制验证码")}
+      onClick={(e) => {
+        e.stopPropagation();
+        void copyText(code);
+      }}
+      className={cx(
+        "mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md",
+        "border border-amber-200 bg-amber-50 px-2.5 py-1 font-mono text-sm font-extrabold tracking-widest",
+        "text-amber-700 transition-colors hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-300",
+        "dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20",
+      )}
+    >
+      <CopyRegular className="h-3.5 w-3.5" />
+      {code}
+    </button>
   );
 }
 
@@ -196,6 +222,7 @@ export function ThreadPanel(props: ThreadPanelProps) {
   )}
 >
   {messageBody(m)}
+  {!outbound && m.verificationCode ? <VerificationCodeBadge code={m.verificationCode} /> : null}
 </div>
 </div>
         </div>

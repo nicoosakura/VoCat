@@ -330,6 +330,7 @@ export interface SMSMessage {
   status: string;
   source?: string;
   deliveryState?: string;
+  verificationCode?: string;
 }
 
 export interface UpstreamProxy {
