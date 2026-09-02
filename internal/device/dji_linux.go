@@ -38,16 +38,46 @@ type usbControlTransfer struct {
 }
 
 func repairDJIQMI(ctx context.Context) (QMIRepairResult, error) {
-	qmicli, err := exec.LookPath("qmicli")
+	qmicli, err := djiQMIRequirements()
 	if err != nil {
-		return QMIRepairResult{}, errors.New("qmicli is required to verify DJI QMI readiness; install libqmi-utils on Debian/Ubuntu/Fedora, libqmi on Arch Linux, or qmi-utils on Alpine")
-	}
-	if os.Geteuid() != 0 {
-		return QMIRepairResult{}, ErrDJIRepairNotRoot
+		return QMIRepairResult{}, err
 	}
 	return retryDJIQMI(ctx, 3, 500*time.Millisecond, func(attemptContext context.Context) (QMIRepairResult, error) {
-		return repairDJIQMIAt(attemptContext, "/sys", "/dev", qmicli)
+		return repairDJIQMIAt(attemptContext, "/sys", "/dev", qmicli, "")
 	})
+}
+
+// repairDJIQMIFor restores the factory AT/QMI USB binding on one specific DJI
+// 4G module, identified by its sysfs device path (for example
+// "/sys/bus/usb/devices/1-4.3"). It is the building block that lets discovery
+// repair several DJI modules independently instead of requiring exactly one
+// module on the bus.
+func repairDJIQMIFor(ctx context.Context, usbPath string) (QMIRepairResult, error) {
+	qmicli, err := djiQMIRequirements()
+	if err != nil {
+		return QMIRepairResult{}, err
+	}
+	usbName := filepath.Base(filepath.Clean(usbPath))
+	if usbPath == "" || usbName == "." || usbName == string(filepath.Separator) {
+		return QMIRepairResult{}, errors.New("DJI module USB path is required for per-device repair")
+	}
+	return retryDJIQMI(ctx, 3, 500*time.Millisecond, func(attemptContext context.Context) (QMIRepairResult, error) {
+		return repairDJIQMIAt(attemptContext, "/sys", "/dev", qmicli, usbName)
+	})
+}
+
+// djiQMIRequirements verifies the two host prerequisites shared by every DJI
+// repair entry point: the qmicli binary for the final readiness probe, and
+// root access for sysfs rebinding and /dev/bus/usb control transfers.
+func djiQMIRequirements() (string, error) {
+	qmicli, err := exec.LookPath("qmicli")
+	if err != nil {
+		return "", errors.New("qmicli is required to verify DJI QMI readiness; install libqmi-utils on Debian/Ubuntu/Fedora, libqmi on Arch Linux, or qmi-utils on Alpine")
+	}
+	if os.Geteuid() != 0 {
+		return "", ErrDJIRepairNotRoot
+	}
+	return qmicli, nil
 }
 
 func retryDJIQMI(
@@ -78,7 +108,7 @@ func retryDJIQMI(
 	return result, fmt.Errorf("failed after %d DTR repair attempt(s): %w", result.Attempts, err)
 }
 
-func repairDJIQMIAt(ctx context.Context, sysRoot, devRoot, qmicli string) (result QMIRepairResult, returnErr error) {
+func repairDJIQMIAt(ctx context.Context, sysRoot, devRoot, qmicli, targetUSBName string) (result QMIRepairResult, returnErr error) {
 	usbRoot := filepath.Join(sysRoot, "bus", "usb", "devices")
 	entries, err := os.ReadDir(usbRoot)
 	if err != nil {
@@ -94,7 +124,19 @@ func repairDJIQMIAt(ctx context.Context, sysRoot, devRoot, qmicli string) (resul
 			usbNames = append(usbNames, entry.Name())
 		}
 	}
-	if len(usbNames) != 1 {
+	if targetUSBName != "" {
+		found := false
+		for _, name := range usbNames {
+			if name == targetUSBName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return result, fmt.Errorf("DJI %s:%s USB device %s is not present", djiVendorID, djiProductID, targetUSBName)
+		}
+		usbNames = []string{targetUSBName}
+	} else if len(usbNames) != 1 {
 		return result, fmt.Errorf("expected exactly one DJI %s:%s USB device, found %d", djiVendorID, djiProductID, len(usbNames))
 	}
 	result.USBName = usbNames[0]

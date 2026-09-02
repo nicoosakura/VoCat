@@ -48,6 +48,23 @@ func TestNormalizeEC20AndroidUSBIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeDJIAndroidUSBIdentity(t *testing.T) {
+	manufacturer, product := normalizeUSBIdentity("2CA3", "4006", "Android", "Android")
+	if manufacturer != "DJI" || product != "DJI 4G Module (Quectel EC20)" {
+		t.Fatalf("normalized DJI identity = %q / %q", manufacturer, product)
+	}
+
+	manufacturer, product = normalizeUSBIdentity("2ca3", "4006", "DJI", "TBUS")
+	if manufacturer != "DJI" || product != "TBUS" {
+		t.Fatalf("real DJI descriptors were overwritten: %q / %q", manufacturer, product)
+	}
+
+	manufacturer, product = normalizeUSBIdentity("2ca3", "4006", "", "")
+	if manufacturer != "DJI" || product != "DJI 4G Module (Quectel EC20)" {
+		t.Fatalf("empty DJI descriptors were not filled: %q / %q", manufacturer, product)
+	}
+}
+
 func TestReliableSerialAliasRejectsGenericAndroidSerial(t *testing.T) {
 	alias := "/dev/serial/by-id/usb-Android_Android-if02-port0"
 	if got := reliableSerialAlias("Android", alias); got != "" {

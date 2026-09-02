@@ -11,11 +11,11 @@ import (
 
 func TestDJINeedsRepair(t *testing.T) {
 	base := modem.Candidate{
-		VendorID:  "2ca3",
-		ProductID: "4006",
+		VendorID:     "2ca3",
+		ProductID:    "4006",
 		HardwareKind: "usb",
-		ATPort:    modem.Port{Path: "/dev/ttyUSB2"},
-		QMIControl: "/dev/cdc-wdm0",
+		ATPort:       modem.Port{Path: "/dev/ttyUSB2"},
+		QMIControl:   "/dev/cdc-wdm0",
 	}
 	if djiNeedsRepair(base) {
 		t.Fatal("healthy DJI module unexpectedly flagged for repair")
@@ -67,16 +67,17 @@ func TestDJIRepairDue(t *testing.T) {
 }
 
 func TestAutoRepairDJIQMIThrottlesRepeatedAttempts(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	manager := &Manager{
 		logger:           slog.New(slog.DiscardHandler),
 		djiRepairAttempt: map[string]time.Time{},
 	}
 	candidate := modem.Candidate{
-		ID:            "usb-dji",
-		VendorID:      "2ca3",
-		ProductID:     "4006",
-		HardwareKind:  "usb",
-		USBPath:       "1-1",
+		ID:             "usb-dji",
+		VendorID:       "2ca3",
+		ProductID:      "4006",
+		HardwareKind:   "usb",
+		USBPath:        "1-1",
 		DiscoveryIssue: "at_port_missing",
 	}
 	candidates := []modem.Candidate{candidate}
@@ -95,20 +96,30 @@ func TestAutoRepairDJIQMIThrottlesRepeatedAttempts(t *testing.T) {
 	}
 }
 
-func TestAutoRepairDJIQMIRequiresSingleDegradedDevice(t *testing.T) {
+func TestAutoRepairDJIQMIHandlesMultipleDegradedDevices(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	manager := &Manager{
 		logger:           slog.New(slog.DiscardHandler),
 		djiRepairAttempt: map[string]time.Time{},
 	}
 	candidates := []modem.Candidate{
-		{ID: "a", VendorID: "2ca3", ProductID: "4006", HardwareKind: "usb", DiscoveryIssue: "at_port_missing"},
-		{ID: "b", VendorID: "2ca3", ProductID: "4006", HardwareKind: "usb", DiscoveryIssue: "at_port_missing"},
+		{ID: "a", VendorID: "2ca3", ProductID: "4006", HardwareKind: "usb", USBPath: "1-1", DiscoveryIssue: "at_port_missing"},
+		{ID: "b", VendorID: "2ca3", ProductID: "4006", HardwareKind: "usb", USBPath: "1-2", DiscoveryIssue: "at_port_missing"},
 	}
 	got := manager.autoRepairDJIQMI(context.Background(), candidates)
 	if len(got) != 2 {
-		t.Fatalf("candidate count = %d, want 2 (repair skipped for two DJI devices)", len(got))
+		t.Fatalf("candidate count = %d, want 2", len(got))
 	}
-	if len(manager.djiRepairAttempt) != 0 {
-		t.Fatalf("repair recorded despite multiple degraded DJI devices: %#v", manager.djiRepairAttempt)
+	// Both degraded devices must have been attempted independently, each
+	// throttled under its own key. The repair itself fails here without
+	// qmicli; the throttle bookkeeping is what this test asserts.
+	if len(manager.djiRepairAttempt) != 2 {
+		t.Fatalf("repair attempts = %#v, want independent keys for both devices", manager.djiRepairAttempt)
+	}
+	for _, path := range []string{"1-1", "1-2"} {
+		attempt, ok := manager.djiRepairAttempt[path]
+		if !ok || attempt.IsZero() {
+			t.Fatalf("device %s has no recorded repair attempt", path)
+		}
 	}
 }

@@ -33,6 +33,55 @@ export interface DJIQMIRepairResult {
 export function repairDJIQMI() {
   return api<DJIQMIRepairResult>("/devices/actions/repair-dji-qmi", { method: "POST" });
 }
+export interface DJIUSBInterfaceWire {
+  index: number;
+  driver: string;
+  serialNode?: string;
+  qmiNode?: string;
+  networkInterface?: string;
+}
+export interface DJIUSBTopologyWire {
+  usbName: string;
+  interfaces: DJIUSBInterfaceWire[];
+}
+export interface DJIRepairAuditWire {
+  id: number;
+  action: string;
+  entityId: string;
+  outcome: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+export interface DJITopologyResponse {
+  topology: DJIUSBTopologyWire;
+  audit: DJIRepairAuditWire[];
+}
+// Read-only USB interface layout plus recent repair history for a configured
+// DJI 4G module (device health card).
+export function getDJITopology(deviceId: string) {
+  return api<DJITopologyResponse>(`/devices/${deviceId}/dji-topology`);
+}
+// Per-device binding repair, independent of other DJI modules on the bus.
+export function repairDeviceDJIQMI(deviceId: string) {
+  return api<{ repaired: boolean; atDevice?: string; controlDevice?: string }>(`/devices/${deviceId}/repair-dji-qmi`, { method: "POST" });
+}
+export interface LatencyTestResult {
+  target: string;
+  interface?: string;
+  sourceIp?: string;
+  attempts: number;
+  samplesMs?: number[];
+  minMs?: number;
+  avgMs?: number;
+  maxMs?: number;
+  path?: string;
+  error?: string;
+}
+// Measures TCP connect latency to a public target over the modem interface.
+export function runLatencyTest(deviceId: string, target?: string) {
+  const query = target ? `?target=${encodeURIComponent(target)}` : "";
+  return api<LatencyTestResult>(`/devices/${deviceId}/latency-test${query}`, { method: "POST" });
+}
 export function getCardPolicy(iccid: string) {
   return api<CardPolicy>(`/cards/${iccid}/policy`);
 }

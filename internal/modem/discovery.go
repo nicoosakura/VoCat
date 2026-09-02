@@ -212,8 +212,18 @@ func isQuectelUSBModem(vendorID string) bool {
 // normalizeUSBIdentity replaces the placeholder strings shipped by the
 // classic Quectel EC20/EC25 USB composition. Linux faithfully exposes those
 // modules as "Android / Android", but that text is a firmware placeholder,
-// not the modem model or manufacturer.
+// not the modem model or manufacturer. The same placeholder appears on the
+// DJI 4G module (first generation), which also runs EC20-class firmware.
 func normalizeUSBIdentity(vendorID, productID, manufacturer, product string) (string, string) {
+	if IsDJI4GUSB(vendorID, productID) {
+		if strings.EqualFold(strings.TrimSpace(manufacturer), "Android") || strings.TrimSpace(manufacturer) == "" {
+			manufacturer = "DJI"
+		}
+		if strings.EqualFold(strings.TrimSpace(product), "Android") || strings.TrimSpace(product) == "" {
+			product = "DJI 4G Module (Quectel EC20)"
+		}
+		return manufacturer, product
+	}
 	if !isQuectelUSBModem(vendorID) ||
 		!strings.EqualFold(strings.TrimSpace(productID), "0125") {
 		return manufacturer, product

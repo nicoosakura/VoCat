@@ -224,7 +224,13 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 
 	cardReaders := pcsc.New()
 	deviceLogger := logger.With("category", "hardware")
-	deviceManager, err := device.NewManager(device.Options{CardReaders: cardReaders, Logger: deviceLogger})
+	deviceManager, err := device.NewManager(device.Options{
+		CardReaders: cardReaders,
+		Logger:      deviceLogger,
+		// Every automatic DJI binding repair is archived so the device health
+		// card can render history; the callback is fire-and-forget.
+		OnDJIRepair: recordDJIQMIRepairAudit(database),
+	})
 	if err != nil {
 		return fmt.Errorf("create device manager: %w", err)
 	}
@@ -287,6 +293,8 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 	go pollDeviceSnapshots(pollContext, deviceLogger, database, deviceManager)
 	go collectCellularTraffic(pollContext, logger, database)
 	go persistLogsToStore(pollContext, logger, logs, database)
+	go pollDJIHealth(pollContext, deviceLogger, database, deviceManager)
+	go watchDJIUSBEvents(pollContext, deviceLogger, deviceManager)
 	if !developerEnabled {
 		go disableAllDeveloperCellularData(pollContext, logger, database, deviceManager)
 	} else {

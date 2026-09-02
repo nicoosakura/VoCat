@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -489,6 +490,11 @@ func (s *Server) handleRepairDJIQMI(w http.ResponseWriter, r *http.Request) bool
 	}
 	result, err := device.RepairDJIQMI(r.Context())
 	if err != nil {
+		// A failed on-demand repair is still worth auditing: prerequisites like
+		// missing qmicli or a second DJI module show up in the health card.
+		if s.recordDJIQMIRepairAudit(w, r, "", false, map[string]any{"error": err.Error()}) {
+			return true
+		}
 		switch {
 		case errors.Is(err, device.ErrDJIRepairNotRoot):
 			writeError(w, http.StatusForbidden, "repair_requires_root", err.Error())
@@ -497,6 +503,13 @@ func (s *Server) handleRepairDJIQMI(w http.ResponseWriter, r *http.Request) bool
 		default:
 			s.writeDeviceError(w, err)
 		}
+		return true
+	}
+	if s.recordDJIQMIRepairAudit(w, r, filepath.Join("/sys/bus/usb/devices", result.USBName), true, map[string]any{
+		"at_device":      result.ATDevice,
+		"control_device": result.ControlDevice,
+		"attempts":       result.Attempts,
+	}) {
 		return true
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -600,6 +613,15 @@ func (s *Server) handleDevicePath(
 	}
 
 	entry, physicalID, physicalPresent := s.physicalForConfig(config)
+	if len(tail) == 1 && tail[0] == "dji-topology" {
+		return s.handleDJITopology(w, r, config)
+	}
+	if len(tail) == 1 && tail[0] == "repair-dji-qmi" {
+		return s.handleDJIRepairFor(w, r, config)
+	}
+	if len(tail) == 1 && tail[0] == "latency-test" {
+		return s.handleLatencyTest(w, r, config)
+	}
 	if config.DeviceType == store.DeviceTypeWiFi410 && native410UnsupportedOperation(tail) {
 		writeError(w, http.StatusNotImplemented, "device_feature_unsupported", "this feature is not supported by the native OpenStick 410 backend")
 		return true

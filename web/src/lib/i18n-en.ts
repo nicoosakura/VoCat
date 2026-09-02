@@ -1126,6 +1126,27 @@ export const EN_DICT: Record<string, string> = {
   "DJI QMI 绑定修复成功": "DJI QMI binding repaired",
   "已发现大疆 4G 模块，但 AT/QMI 接口未绑定到正确驱动（USB 绑定在冷启动或重连后可能丢失）。点击“修复 DJI QMI 绑定”恢复出厂绑定（需 root 权限）。":
     "DJI 4G module detected, but its AT/QMI interfaces are not bound to the correct drivers (USB bindings can be lost after a cold boot or reconnect). Click \"Repair DJI QMI Binding\" to restore the factory bindings (root required).",
+  "DJI 4G 模块 USB 组态": "DJI 4G Module USB Layout",
+  "组态正常": "Layout normal",
+  "组态异常": "Layout abnormal",
+  "该模块需要正确的 APN 并开启数据网络才能建立数据连接；SMS 不依赖数据连接。":
+    "This module needs the correct APN and data network enabled to establish a data connection; SMS works without a data connection.",
+  "正在读取 USB 组态…": "Reading USB layout...",
+  "接口": "Interface",
+  "驱动": "Driver",
+  "节点": "Node",
+  "延迟诊断": "Latency Diagnosis",
+  "最低": "Min",
+  "平均": "Avg",
+  "最高": "Max",
+  "模块接口": "modem interface",
+  "功能能力": "Capabilities",
+  "SMS 短信": "SMS",
+  "移动数据（需 APN）": "Cellular data (APN required)",
+  "VoWiFi（视固件）": "VoWiFi (firmware dependent)",
+  "eSIM 不支持（物理 SIM）": "eSIM not supported (physical SIM)",
+  "最近修复记录": "Recent Repair History",
+  "暂无修复记录": "No repair history yet",
 
   // ---- Per-Profile phone display override ----
   "自定义手机号": "Custom Phone Number",

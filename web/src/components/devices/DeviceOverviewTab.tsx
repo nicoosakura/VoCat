@@ -4,6 +4,7 @@ import { OverviewVowifiCard } from "./OverviewVowifiCard";
 import { OverviewSimPanel } from "./OverviewSimPanel";
 import { OverviewNetworkPanel } from "./OverviewNetworkPanel";
 import { OverviewTrafficChart } from "./OverviewTrafficChart";
+import { DjiHealthCard } from "./DjiHealthCard";
 import { OperatorSelectionDialog } from "./OperatorSelectionDialog";
 import type { DeviceDetail } from "./types";
 import { useI18n } from "../../lib/i18n";
@@ -54,6 +55,7 @@ export function DeviceOverviewTab(props: DeviceOverviewTabProps) {
           trafficSpeedTx={props.trafficSpeedTx}
 		/> : null}
       </div>
+      {device.deviceType === "dji_4g" ? <DjiHealthCard device={device} /> : null}
       {device.developerEnabled && device.networkEnabled && device.id ? <OverviewTrafficChart deviceId={device.id} /> : null}
 	  {device?.id && !wifiCallingOnly ? (
         <OperatorSelectionDialog
