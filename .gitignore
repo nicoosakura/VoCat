@@ -12,6 +12,12 @@
 *.dylib
 /fix
 
+# ---- Runtime data (SQLite DB is created on first start via migrations) ----
+/data/
+
+# ---- Agent share artifacts ----
+/.trae-html-share-packages/
+
 # ---- Cookie / secret files (NEVER commit) ----
 vc.jar
 *.cookies
