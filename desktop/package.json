@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test ./test/notify-bridge.test.js",
+    "test": "node --test ./test/notify-bridge.test.js ./test/updater.test.js",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/notify-bridge.js && node --check src/renderer/settings.js",
     "build:go:darwin:arm64": "cd .. && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o desktop/resources/services/darwin-arm64/vocat ./cmd/vocat",
     "build:go:darwin:amd64": "cd .. && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o desktop/resources/services/darwin-amd64/vocat ./cmd/vocat",

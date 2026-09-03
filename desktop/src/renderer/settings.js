@@ -11,6 +11,8 @@ const hide = (id) => el(id).classList.add('hidden');
 
 let hosts = [];
 let editingId = null;
+let pendingAsset = null; // 检查更新命中后的安装包资源
+let unsubscribeProgress = null;
 
 async function boot() {
   const settings = await api.loadSettings();
@@ -21,6 +23,7 @@ async function boot() {
   el('c-notify').checked = settings.notificationsEnabled !== false;
   el('notify-note').textContent =
     '新短信与设备掉线事件实时推送到系统通知；点击通知直接跳到短信或设备页。';
+  el('ver').textContent = `v${settings.version || '?'}`;
 
   if (settings.credentialStorageUsable === false) {
     show('cred-warning');
@@ -164,6 +167,81 @@ function readForm() {
   if (editingId) host.id = editingId;
   return host;
 }
+
+// ---------------------------------------------------------------------------
+// 更新（PRD D8）：检查 GitHub Releases → 下载并打开安装包。
+// ---------------------------------------------------------------------------
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+el('btn-check-update').addEventListener('click', async () => {
+  pendingAsset = null;
+  hide('update-actions');
+  el('update-result').textContent = '正在检查更新…';
+  el('btn-check-update').disabled = true;
+  try {
+    const result = await api.checkUpdate();
+    if (!result.ok) {
+      el('update-result').textContent = result.error || '检查更新失败';
+      return;
+    }
+    if (!result.updateAvailable) {
+      el('update-result').textContent = '已是最新版本';
+      return;
+    }
+    el('update-result').textContent = `发现新版本 v${result.version}${result.notes ? `：${result.notes}` : ''}`;
+    if (result.assetAvailable && result.asset) {
+      pendingAsset = result.asset;
+      show('update-actions');
+    } else if (result.releaseUrl) {
+      el('update-actions').innerHTML = '';
+      // 当前平台无安装包：引导用户从 Release 页面手动下载。
+      const link = document.createElement('button');
+      link.className = 'primary';
+      link.textContent = '前往 Release 页面下载';
+      link.addEventListener('click', () => openExternal(result.releaseUrl));
+      el('update-actions').append(link);
+      show('update-actions');
+    }
+  } finally {
+    el('btn-check-update').disabled = false;
+  }
+});
+
+// 设置窗口是本地页面，主进程已把外部链接一律交系统浏览器。
+function openExternal(url) {
+  window.open(url, '_blank');
+}
+
+el('btn-download-update').addEventListener('click', async () => {
+  if (!pendingAsset) return;
+  el('btn-download-update').disabled = true;
+  el('update-progress').textContent = '准备下载…';
+  if (unsubscribeProgress) {
+    unsubscribeProgress();
+    unsubscribeProgress = null;
+  }
+  unsubscribeProgress = api.onUpdateProgress((progress) => {
+    if (progress.phase === 'downloading') {
+      const pct = progress.total > 0 ? `（${Math.round((progress.received / progress.total) * 100)}%）` : '';
+      el('update-progress').textContent = `下载中 ${formatBytes(progress.received)}${pct}`;
+    } else if (progress.phase === 'done') {
+      el('update-progress').textContent = '下载完成，即将打开安装程序';
+    } else if (progress.phase === 'failed') {
+      el('update-progress').textContent = `下载失败：${progress.error || ''}`;
+      el('btn-download-update').disabled = false;
+    }
+  });
+  const result = await api.downloadUpdate(pendingAsset);
+  if (!result.ok && unsubscribeProgress) {
+    el('update-progress').textContent = `下载失败：${result.error || ''}`;
+    el('btn-download-update').disabled = false;
+  }
+});
 
 async function refresh() {
   const settings = await api.loadSettings();

@@ -1,0 +1,140 @@
+# VoCat 桌面控制端 · 双平台构建与发布（PRD D8）
+#
+# 触发：
+#   - 手工 dispatch（workflow_dispatch）
+#   - 推送 v* 标签（如 v0.2.0）→ 构建 → 创建 GitHub Release
+#
+# macOS 产物在标记"签名 + 公证"前需要仓库配置以下 Secrets：
+#   CSC_LINK / CSC_KEY_PASSWORD        分发证书（p12 及其密码）
+#   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   公证凭据
+# 未配置时 macOS 仍会产出未签名 .dmg（Gatekeeper 会提示未知开发者），
+# Windows 产物的代码签名证书可选（CSC_LINK/CSC_KEY_PASSWORD 相同变量）。
+#
+# 服务端二进制（本地一体模式）在此 workflow 内用交叉编译随包分发。
+
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    name: Build macOS (arm64 + x64)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build embedded service (darwin arm64 + amd64)
+        run: npm run build:go:darwin:arm64 && npm run build:go:darwin:amd64
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package DMG (signed + notarized when secrets present)
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload DMG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: desktop/release/*.dmg
+          if-no-files-found: error
+
+  build-win:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build embedded service (win32-x64)
+        run: npm run build:go:windows
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package NSIS installer
+        run: npx electron-builder --win --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Upload EXE artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: desktop/release/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DMG artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dmg
+          path: dist/dmg
+
+      - name: Download EXE artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: dist/exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: VoCat Desktop ${{ github.ref_name }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease: false
+          files: |
+            dist/dmg/*.dmg
+            dist/exe/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -19,4 +19,13 @@ contextBridge.exposeInMainWorld('vocat', {
   setCloseToTray: (enabled) => ipcRenderer.invoke('settings:set-close-to-tray', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('settings:set-notifications-enabled', enabled),
   probeHost: (host) => ipcRenderer.invoke('settings:probe-host', host),
+
+  // 更新（PRD D8）
+  checkUpdate: () => ipcRenderer.invoke('settings:check-update'),
+  downloadUpdate: (asset) => ipcRenderer.invoke('settings:download-update', asset),
+  onUpdateProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on('update:progress', listener);
+    return () => ipcRenderer.removeListener('update:progress', listener);
+  },
 });

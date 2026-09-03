@@ -14,6 +14,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { NotificationBridge } = require('./notify-bridge');
+const updater = require('./updater');
 
 const APP_NAME = 'VoCat Desktop';
 // 默认服务端口：与 Go 服务端 config 默认一致（参考 internal/config/config.go）。
@@ -47,6 +48,7 @@ let settingsWindow = null;
 let localService = null; // 本地一体模式的内嵌服务子进程
 let lastLocalHost = null; // 崩溃自愈：记录最后一次拉起的本地主机配置
 let lastRestartAt = 0;    // 崩溃自愈：上次自动重启时间戳（60s 限流）
+let updateInFlight = false; // 检查更新/下载更新防重入
 
 const userDataDir = app.getPath('userData');
 const settingsPath = path.join(userDataDir, 'settings.json');
@@ -543,6 +545,7 @@ ipcMain.handle('settings:load', () => {
       hasCredential: host.credential !== '',
     })),
     platform: PLATFORM,
+    version: app.getVersion(),
     linuxOnlyCapabilities: LINUX_ONLY_CAPABILITIES,
     credentialStorageUsable: isCredentialStorageUsable(),
   };
@@ -604,6 +607,65 @@ ipcMain.handle('settings:decrypt-for-local', () => {
   // 本地一体模式的免密会话由主进程在拉起服务时通过一次性随机口令完成，
   // 渲染进程无需接触任何密钥材料。
   return { implemented: true };
+});
+
+// ---------------------------------------------------------------------------
+// 更新（PRD D8）：检查 GitHub Releases 最新版 → 下载安装包 → 系统安装引导。
+// ---------------------------------------------------------------------------
+ipcMain.handle('settings:check-update', async () => {
+  if (updateInFlight) {
+    return { ok: false, error: '已有更新操作进行中，请稍候', retryable: true };
+  }
+  updateInFlight = true;
+  try {
+    const result = await updater.checkForUpdates({
+      currentVersion: app.getVersion(),
+    });
+    if (result.ok && result.updateAvailable && !result.assetAvailable) {
+      result.notes = (result.notes || '') + '\n\n提示：当前平台暂无安装包，请访问 GitHub Releases 手动下载。';
+      result.releaseUrl = `https://github.com/${updater.DEFAULT_REPO}/releases/latest`;
+    }
+    return result;
+  } finally {
+    updateInFlight = false;
+  }
+});
+
+ipcMain.handle('settings:download-update', async (event, asset) => {
+  if (!asset || typeof asset.url !== 'string' || typeof asset.name !== 'string') {
+    return { ok: false, error: '无效的更新资源' };
+  }
+  if (updateInFlight) {
+    return { ok: false, error: '已有更新操作进行中，请稍候', retryable: true };
+  }
+  updateInFlight = true;
+  const report = (progress) => {
+    if (event && event.sender && !event.sender.isDestroyed()) {
+      event.sender.send('update:progress', progress);
+    }
+  };
+  report({ phase: 'downloading', received: 0, total: Number(asset.size) || 0 });
+  try {
+    const result = await updater.downloadAsset(
+      asset.url,
+      asset.name,
+      updater.defaultDestDir(),
+      (received, total) => report({ phase: 'downloading', received, total }),
+    );
+    report({ phase: 'done', filePath: result.filePath });
+    notify('更新下载完成', `安装包已保存到 ${result.filePath}\n即将打开安装程序`, null);
+    // 打开安装包交给系统安装（macOS 挂载 dmg / Windows 启动 NSIS 安装器）。
+    setTimeout(async () => {
+      const error = await shell.openPath(result.filePath);
+      if (error) shell.showItemInFolder(result.filePath);
+    }, 800);
+    return { ok: true, filePath: result.filePath };
+  } catch (err) {
+    report({ phase: 'failed', error: err.message });
+    return { ok: false, error: err.message };
+  } finally {
+    updateInFlight = false;
+  }
 });
 
 // ---------------------------------------------------------------------------

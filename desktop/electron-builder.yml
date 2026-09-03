@@ -8,6 +8,10 @@ directories:
   output: release
   buildResources: build
 
+# 安装包命名与桌面端 updater.js 的 assetKeywords 约定一致
+# （mac-arm64 / mac-x64 / win-x64），供检查更新时匹配资源。
+artifactName: VoCat-${version}-${os}-${arch}.${ext}
+
 files:
   - src/**/*
 
@@ -33,7 +37,14 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: VoCat
 
+# macOS 公证（需要 CI 提供 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+# APPLE_TEAM_ID 环境变量与分发证书 CSC_LINK / CSC_KEY_PASSWORD）。
+# 未提供签名证书时 electron-builder 会自动跳过签名（出未签名包）。
+dmg:
+  sign: false
+
 mac:
+  notarize: true
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -43,8 +54,8 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
 
-dmg:
-  sign: false
-
-# 发布渠道：待确认（GitHub Releases / 自建源），第一期留空手动出包
-publish: null
+# 发布渠道：GitHub Releases（更新检查与 CI 发布共用）
+publish:
+  provider: github
+  owner: MengMengCode
+  repo: VoCat
