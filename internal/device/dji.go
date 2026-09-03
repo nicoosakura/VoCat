@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// DJI 4G module (Gen-1) USB identifiers. Shared by the platform-independent
+// uevent matcher and the Linux-only repair/topology implementations.
+const (
+	djiVendorID  = "2ca3"
+	djiProductID = "4006"
+)
+
 var (
 	// ErrDJIRepairUnsupported reports that the host platform has no DJI binding
 	// repair implementation. Only Linux exposes the sysfs and USB control

@@ -1,0 +1,25 @@
+{
+  "name": "vocat-desktop",
+  "productName": "VoCat Desktop",
+  "version": "0.1.0",
+  "description": "VoCat 桌面控制端 - 高通模块专业测试工具（macOS / Windows）",
+  "main": "src/main.js",
+  "author": "vocat",
+  "license": "GPL-3.0",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/settings.js",
+    "build:go:darwin:arm64": "cd .. && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o desktop/resources/service-darwin-arm64/vocat ./cmd/vocat",
+    "build:go:darwin:amd64": "cd .. && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o desktop/resources/service-darwin-amd64/vocat ./cmd/vocat",
+    "build:go:windows": "cd .. && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o desktop/resources/service-win32-x64/vocat.exe ./cmd/vocat",
+    "build:go": "npm run build:go:darwin:arm64 && npm run build:go:darwin:amd64 && npm run build:go:windows",
+    "dist": "npm run build:go && electron-builder",
+    "dist:mac": "npm run build:go:darwin:arm64 && npm run build:go:darwin:amd64 && electron-builder --mac",
+    "dist:win": "npm run build:go:windows && electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+release/
+dist/
+*.log
+
+# 交叉编译产物不入库（由 build:go 脚本生成）
+resources/services/darwin-arm64/vocat
+resources/services/darwin-amd64/vocat
+resources/services/win32-x64/vocat.exe
+
+# 本地运行态
+settings.json

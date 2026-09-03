@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:" />
+  <title>VoCat Desktop · 设置</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <h1>主机与连接</h1>
+      <span id="cred-warning" class="warn hidden"></span>
+    </header>
+
+    <section class="panel">
+      <div class="row row-head">
+        <span>已配置主机</span>
+        <button id="btn-add" class="primary">添加主机</button>
+      </div>
+      <ul id="host-list" class="list"></ul>
+      <p id="empty-hint" class="muted">还没有主机。点击"添加主机"录入远程 Linux 主机，或添加本地一体模式。</p>
+    </section>
+
+    <section id="editor" class="panel hidden">
+      <div class="row row-head">
+        <span id="editor-title">编辑主机</span>
+        <button id="btn-cancel" class="ghost">取消</button>
+      </div>
+      <form id="form">
+        <label>显示名
+          <input id="f-name" type="text" maxlength="40" placeholder="如：阳台路由器" />
+        </label>
+        <label>模式
+          <select id="f-mode">
+            <option value="remote">远程管理（连接 Linux 主机上的 VoCat 服务）</option>
+            <option value="local">本地一体（使用本机内嵌服务接入模块）</option>
+          </select>
+        </label>
+        <div id="remote-fields">
+          <label>协议
+            <select id="f-protocol">
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </label>
+          <label>地址
+            <input id="f-address" type="text" placeholder="192.168.1.100 或 域名" />
+          </label>
+          <label>端口
+            <input id="f-port" type="number" min="1" max="65535" value="7575" />
+          </label>
+          <label class="stack">凭证（可选，用于远程 Web 登录自动填入）
+            <input id="f-credential" type="password" placeholder="留空则每次手动登录" />
+            <small id="cred-hint" class="muted"></small>
+          </label>
+        </div>
+        <div class="row actions">
+          <button id="btn-verify" type="button" class="ghost">测试连接</button>
+          <span id="verify-result" class="muted"></span>
+          <span class="grow"></span>
+          <button id="btn-delete-host" type="button" class="danger hidden">删除</button>
+          <button id="btn-save" type="submit" class="primary">保存</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <label class="grow">
+          <input id="c-auth" type="checkbox" />
+          开机自启（静默启动到托盘）
+        </label>
+        <label class="grow">
+          <input id="c-tray" type="checkbox" />
+          关闭按钮最小化到托盘
+        </label>
+      </div>
+      <p id="platform-note" class="muted"></p>
+    </section>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

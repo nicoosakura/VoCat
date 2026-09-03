@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	djiVendorID         = "2ca3"
-	djiProductID        = "4006"
 	djiFirstSerialIndex = 0
 	djiLastSerialIndex  = 3
 	djiATIndex          = 2

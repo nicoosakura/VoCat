@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>VoCat Desktop</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #171717;
+      color: #e5e5e5;
+      font: 14px/20px system-ui, -apple-system, "PingFang SC", "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+    }
+    .box { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+    h1 { margin: 0; font-size: 16px; }
+    p { margin: 0; color: #a1a1aa; max-width: 420px; }
+    button {
+      border: 1px solid #6054f1;
+      background: #6054f1;
+      color: #fff;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font: inherit;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>VoCat Desktop</h1>
+    <p>还没有配置主机。请从系统托盘点击"主机与设置…"，添加远程 Linux 主机，或启用本地一体模式。</p>
+    <button onclick="window.close()">关闭</button>
+  </div>
+</body>
+</html>

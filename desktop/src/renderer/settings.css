@@ -1,0 +1,119 @@
+/* VoCat 桌面控制端 · 设置窗口（原生样式，零构建） */
+:root {
+  color-scheme: light dark;
+  --surface: #f7f7f8;
+  --surface-2: #efeff2;
+  --text: #171717;
+  --text-muted: #52525b;
+  --border: rgba(23, 23, 23, 0.12);
+  --brand: #4b3fe3;
+  --brand-text: #1a1759;
+  --brand-on: #ffffff;
+  --danger: #e8463a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #171717;
+    --surface-2: #262626;
+    --text: #e5e5e5;
+    --text-muted: #a1a1aa;
+    --border: rgba(229, 229, 229, 0.12);
+    --brand: #6054f1;
+    --brand-text: #cfd8ff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: 14px/20px system-ui, -apple-system, "PingFang SC", "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head { display: flex; align-items: center; gap: 12px; }
+.head h1 { font-size: 16px; margin: 0; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row { display: flex; align-items: center; gap: 12px; }
+.row-head { justify-content: space-between; font-weight: 600; }
+.grow { flex: 1; }
+.hidden { display: none !important; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.list .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.list .dot.ok { background: #1dc981; }
+.list .dot.bad { background: var(--danger); }
+.list .name { font-weight: 500; }
+.list .addr { color: var(--text-muted); font-size: 12px; }
+.list .mode-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.list .default { color: var(--brand); font-size: 12px; }
+
+form { display: flex; flex-direction: column; gap: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
+label.stack { flex-direction: column; }
+label.grow { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+
+input, select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+input[type="checkbox"] { accent-color: var(--brand); width: 16px; height: 16px; }
+small { color: var(--text-muted); }
+
+button {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-on); font-weight: 600; }
+button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+button.ghost { background: transparent; }
+button:disabled { opacity: 0.55; cursor: default; }
+
+.actions { margin-top: 4px; }
+.muted { color: var(--text-muted); font-size: 12px; }
+.warn { color: #b45309; font-size: 12px; border: 1px solid rgba(180, 83, 9, 0.4); border-radius: 8px; padding: 4px 10px; }
+#platform-note { margin: 0; font-size: 12px; }

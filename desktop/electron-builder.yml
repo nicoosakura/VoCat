@@ -1,0 +1,50 @@
+# VoCat 桌面控制端 · electron-builder 双平台构建配置
+# macOS: .dmg（签名 + 公证需在 CI 提供证书与 notary 凭据）
+# Windows: NSIS .exe（可选代码签名证书）
+
+appId: com.vocat.desktop
+productName: VoCatDesktop
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - src/**/*
+
+# 内嵌的 Go 服务二进制随包分发（本地一体模式使用）
+extraResources:
+  - from: resources/services
+    to: services
+    filter:
+      - '**/*'
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: VoCat
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  sign: false
+
+# 发布渠道：待确认（GitHub Releases / 自建源），第一期留空手动出包
+publish: null
