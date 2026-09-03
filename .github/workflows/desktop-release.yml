@@ -46,6 +46,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # go:embed 的 web/dist 需先构建，否则交叉编译内嵌服务失败（web/embed.go）。
+      - name: Build embedded web UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
       - name: Build embedded service (darwin arm64 + amd64)
         run: npm run build:go:darwin:arm64 && npm run build:go:darwin:amd64
 
@@ -89,6 +96,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # go:embed 的 web/dist 需先构建，否则交叉编译内嵌服务失败（web/embed.go）。
+      - name: Build embedded web UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
 
       - name: Build embedded service (win32-x64)
         run: npm run build:go:windows
