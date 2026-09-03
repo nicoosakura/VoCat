@@ -11,7 +11,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { NotificationBridge } = require('./notify-bridge');
 
 const APP_NAME = 'VoCat Desktop';
 // 默认服务端口：与 Go 服务端 config 默认一致（参考 internal/config/config.go）。
@@ -43,6 +45,8 @@ let mainWindow = null;
 let tray = null;
 let settingsWindow = null;
 let localService = null; // 本地一体模式的内嵌服务子进程
+let lastLocalHost = null; // 崩溃自愈：记录最后一次拉起的本地主机配置
+let lastRestartAt = 0;    // 崩溃自愈：上次自动重启时间戳（60s 限流）
 
 const userDataDir = app.getPath('userData');
 const settingsPath = path.join(userDataDir, 'settings.json');
@@ -52,7 +56,14 @@ const DEFAULT_SETTINGS = {
   defaultHostId: '',
   autoLaunch: false,
   closeToTray: true,
+  notificationsEnabled: true, // PRD D6：桌面通知桥接总开关
 };
+
+// 通知桥接（PRD D6）：消费服务端事件流并转为系统通知。
+let notificationBridge = new NotificationBridge({
+  notify: notify,
+  focusAndNavigate: focusAndNavigate,
+});
 
 function ensureSettings() {
   if (!fs.existsSync(settingsPath)) {
@@ -191,18 +202,43 @@ async function startLocalService(host) {
     return { ok: false, error: '内嵌服务二进制缺失，请先运行 npm run build:go' };
   }
   const port = host.port || (await freePort());
+  // PRD 第二期：为本地一体模式生成一次性随机口令。服务端以该口令武装
+  // 本地会话签发（60s 有效、单次使用），主进程随后换取会话并注入默认
+  // session，渲染进程打开页面即为已登录状态，轮询请求共享同一登录态。
+  const localSecret = crypto.randomBytes(24).toString('base64url');
+  lastLocalHost = host;
   const service = spawn(binary, ['--address', `127.0.0.1:${port}`], {
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, VOCAT_LOCAL_ISSUE_SECRET: localSecret },
   });
   localService = service;
   service.stdout.on('data', (chunk) => console.log('[vocat-service]', String(chunk).trimEnd()));
   service.stderr.on('data', (chunk) => console.error('[vocat-service]', String(chunk).trimEnd()));
   service.on('exit', (code, signal) => {
     console.log(`[vocat-desktop] 本地服务退出 code=${code} signal=${signal}`);
-    if (!app.isQuiting && service === localService) {
-      notify('本地服务已停止', '服务进程异常退出，点击查看详情');
-    }
     localService = null;
+    if (app.isQuiting || service.killed) {
+      return;
+    }
+    // 崩溃自愈（PRD 第二期 AC4）：非主动退出时自动重启一次，60s 限流
+    // 防循环崩溃风暴。
+    const now = Date.now();
+    if (now - lastRestartAt > 60000 && lastLocalHost) {
+      lastRestartAt = now;
+      notify('本地服务已重启', '服务进程异常退出，正在自动重启…');
+      void startLocalService(lastLocalHost).then((result) => {
+        if (result.ok) {
+          // 服务回到同一回环端口，主窗口若正指向本地服务则自动刷新登录态。
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL(result.url).catch(() => {});
+          }
+        } else {
+          notify('本地服务自动重启失败', result.error || '未知错误', '/');
+        }
+      });
+    } else {
+      notify('本地服务已停止', '服务进程异常退出，点击查看详情', '/');
+    }
   });
 
   // 最多等 20s，探活通过才算启动成功。
@@ -212,7 +248,10 @@ async function startLocalService(host) {
     const probe = await probeHost({ protocol: 'http', address: '127.0.0.1', port });
     if (probe.ok) {
       service.logged = true;
-      return { ok: true, url: `http://127.0.0.1:${port}` };
+      const baseUrl = `http://127.0.0.1:${port}`;
+      // 登录态注入必须在 loadURL 之前完成，保证渲染进程首屏即免密。
+      notificationBridge.injectLocalSessionLocally(baseUrl, localSecret);
+      return { ok: true, url: baseUrl };
     }
     if (Date.now() > deadline) {
       stopLocalService();
@@ -231,18 +270,32 @@ function stopLocalService() {
 // ---------------------------------------------------------------------------
 // 通知：macOS 走 Notification Center（经 Electron Notification API），
 // Windows 走系统 Toast。应用完全退出后自然不再产生任何通知。
+// route 为可选 Web 路由（如 /sms、/devices），点击通知时聚焦窗口并跳转。
 // ---------------------------------------------------------------------------
-function notify(title, body) {
+function notify(title, body, route) {
   const { Notification } = require('electron');
   if (!Notification.isSupported()) return;
   const notification = new Notification({ title, body, silent: false });
-  notification.on('click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  notification.on('click', () => focusAndNavigate(route));
   notification.show();
+}
+
+// 聚焦主窗口并按事件携带的路由跳转（PRD D6 交互逻辑）。
+function focusAndNavigate(route) {
+  showMainWindow();
+  if (!route) return;
+  const navigation = `(function () {
+    if (window.location.pathname !== ${JSON.stringify(route)}) {
+      history.pushState(null, '', ${JSON.stringify(route)});
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    }
+  })()`;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.executeJavaScript(navigation).catch((err) => {
+      // 页面仍在加载时导航失败可接受：通知点击已聚焦窗口。
+      console.warn('[vocat-desktop] 通知路由跳转失败:', err.message);
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,12 +321,15 @@ function createMainWindow() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.loadURL(result.ok ? result.url : `file://${path.join(__dirname, 'renderer', 'connect.html')}`);
       }
+      restartBridgeForHost(target.host);
       refreshTrayMenu();
     });
   } else if (target) {
     mainWindow.loadURL(target.url);
+    restartBridgeForHost(target.host);
   } else {
     mainWindow.loadFile(path.join(__dirname, 'renderer', 'connect.html'));
+    notificationBridge.stop();
   }
 
   // 窗口内打开外部链接一律走系统浏览器，避免远程页面在应用内弹新窗口。
@@ -427,6 +483,7 @@ function switchToHost(hostId) {
     else mainWindow.loadURL(host.mode === 'local' ? `http://127.0.0.1:${host.port}` : hostBaseUrl(host));
     showMainWindow();
   };
+  restartBridgeForHost(host);
   if (host.mode === 'local') {
     void startLocalService(host).then((result) => {
       if (result.ok) open();
@@ -436,6 +493,29 @@ function switchToHost(hostId) {
     open();
   }
   refreshTrayMenu();
+}
+
+// ---------------------------------------------------------------------------
+// 通知桥管理（PRD D6）：跟随当前默认主机启动/切换/停止事件轮询。
+// ---------------------------------------------------------------------------
+function startBridgeForHost(host) {
+  const settings = loadSettings();
+  const enabled = settings.notificationsEnabled !== false;
+  const target =
+    host.mode === 'local'
+      ? { baseUrl: `http://127.0.0.1:${host.port}`, local: true }
+      : { baseUrl: hostBaseUrl(host), local: false };
+  notificationBridge.start(target, enabled);
+}
+
+function restartBridgeForDefault() {
+  const settings = loadSettings();
+  const target = resolveDefaultTarget(settings);
+  if (!target) {
+    notificationBridge.stop();
+    return;
+  }
+  startBridgeForHost(target.host);
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +557,7 @@ ipcMain.handle('settings:save-host', (_event, rawHost) => {
   if (!settings.defaultHostId) settings.defaultHostId = normalized.id;
   saveSettings({ hosts: settings.hosts, defaultHostId: settings.defaultHostId });
   refreshTrayMenu();
+  restartBridgeForDefault();
   return { ok: true, host: { ...normalized, credential: undefined, hasCredential: normalized.credential !== '' } };
 });
 
@@ -486,12 +567,14 @@ ipcMain.handle('settings:delete-host', (_event, hostId) => {
   if (settings.defaultHostId === hostId) settings.defaultHostId = settings.hosts[0]?.id || '';
   saveSettings({ hosts: settings.hosts, defaultHostId: settings.defaultHostId });
   refreshTrayMenu();
+  restartBridgeForDefault();
   return { ok: true };
 });
 
 ipcMain.handle('settings:set-default-host', (_event, hostId) => {
   saveSettings({ defaultHostId: hostId });
   refreshTrayMenu();
+  restartBridgeForDefault();
   return { ok: true };
 });
 
@@ -505,15 +588,22 @@ ipcMain.handle('settings:set-close-to-tray', (_event, enabled) => {
   return { ok: true };
 });
 
+ipcMain.handle('settings:set-notifications-enabled', (_event, enabled) => {
+  const next = enabled !== false;
+  saveSettings({ notificationsEnabled: next });
+  notificationBridge.setNotificationsEnabled(next);
+  return { ok: true, enabled: next };
+});
+
 ipcMain.handle('settings:probe-host', (_event, rawHost) => {
   const host = normalizeHost(rawHost);
   return probeHost(host);
 });
 
 ipcMain.handle('settings:decrypt-for-local', () => {
-  // 预留：本地一体模式用主进程持有的一次性随机口令换取服务端会话。
-  // 第一期仅返回建设性说明，口令机制在第二期实现。
-  return { todo: true };
+  // 本地一体模式的免密会话由主进程在拉起服务时通过一次性随机口令完成，
+  // 渲染进程无需接触任何密钥材料。
+  return { implemented: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -537,6 +627,7 @@ app.on('second-instance', () => {
 
 app.on('before-quit', () => {
   app.isQuiting = true;
+  notificationBridge.stop();
   stopLocalService();
 });
 

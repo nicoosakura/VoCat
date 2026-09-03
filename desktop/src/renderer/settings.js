@@ -18,6 +18,9 @@ async function boot() {
 
   el('c-auth').checked = !!settings.autoLaunch;
   el('c-tray').checked = settings.closeToTray !== false;
+  el('c-notify').checked = settings.notificationsEnabled !== false;
+  el('notify-note').textContent =
+    '新短信与设备掉线事件实时推送到系统通知；点击通知直接跳到短信或设备页。';
 
   if (settings.credentialStorageUsable === false) {
     show('cred-warning');
@@ -144,6 +147,9 @@ el('c-auth').addEventListener('change', (event) => {
 });
 el('c-tray').addEventListener('change', (event) => {
   void api.setCloseToTray(event.target.checked);
+});
+el('c-notify').addEventListener('change', (event) => {
+  void api.setNotificationsEnabled(event.target.checked);
 });
 
 function readForm() {

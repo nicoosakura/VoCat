@@ -94,6 +94,7 @@ type Server struct {
 	cellularDataEventOnce     sync.Once
 	cellularDataLifecycleOnce sync.Once
 	cellularData              *cellularDataRuntime
+	desktopEvents             *desktopEventBus
 }
 
 func New(options Options) (*Server, error) {
@@ -162,6 +163,7 @@ func New(options Options) (*Server, error) {
 	mux.HandleFunc("/api/auth/login", server.handleLogin)
 	mux.HandleFunc("/api/auth/session", server.handleSession)
 	mux.HandleFunc("/api/auth/logout", server.handleLogout)
+	mux.HandleFunc("/api/auth/local-issue", server.handleLocalIssue)
 	mux.HandleFunc("/api", server.handleAPI)
 	mux.HandleFunc("/api/", server.handleAPI)
 	mux.HandleFunc("/websheets/", server.handleWebsheet)
@@ -171,6 +173,7 @@ func New(options Options) (*Server, error) {
 	server.handler = server.recoverPanics(
 		server.securityHeaders(server.accessControl(server.logUserOperation(mux))),
 	)
+	server.desktopEvents = newDesktopEventBus()
 	return server, nil
 }
 

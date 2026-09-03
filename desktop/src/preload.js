@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('vocat', {
   setDefaultHost: (hostId) => ipcRenderer.invoke('settings:set-default-host', hostId),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:set-auto-launch', enabled),
   setCloseToTray: (enabled) => ipcRenderer.invoke('settings:set-close-to-tray', enabled),
+  setNotificationsEnabled: (enabled) => ipcRenderer.invoke('settings:set-notifications-enabled', enabled),
   probeHost: (host) => ipcRenderer.invoke('settings:probe-host', host),
 });

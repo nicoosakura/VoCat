@@ -47,6 +47,8 @@ func (s *Server) routeGeneralAPI(w http.ResponseWriter, r *http.Request) bool {
 		s.handleLogHistory(w, r)
 	case "logs/stream":
 		s.handleLogStream(w, r)
+	case "events/poll":
+		s.handleDesktopEventsPoll(w, r)
 	case "system/info":
 		s.handleSystemInfo(w, r)
 	case "system/update/check":

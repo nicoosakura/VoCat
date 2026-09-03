@@ -215,6 +215,14 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 	if err != nil {
 		return err
 	}
+	// Local-integrated desktop mode: the desktop shell arms a one-time secret
+	// via VOCAT_LOCAL_ISSUE_SECRET and exchanges it for a session over loopback
+	// after launching this binary bound to 127.0.0.1. The secret lives only in
+	// process memory and is single-use; an empty value disarms the feature.
+	if localSecret := os.Getenv("VOCAT_LOCAL_ISSUE_SECRET"); strings.TrimSpace(localSecret) != "" {
+		authService.SetLocalIssueSecret(localSecret, auth.DefaultLocalIssueTTL)
+		logger.Info("local session issuance armed", "ttl", auth.DefaultLocalIssueTTL.String())
+	}
 	if _, adminErr := database.CurrentAdmin(startupContext); adminErr != nil {
 		if errors.Is(adminErr, store.ErrNotFound) {
 			return errors.New("administrator is not initialized; run vocat bootstrap-admin before starting the service")
@@ -347,6 +355,7 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 	handler.StartCellularDataReconciler(pollContext)
 	handler.StartTelegramBot(pollContext)
 	handler.StartSMSNotificationDispatchers(pollContext)
+	handler.StartDesktopEventDispatchers(pollContext)
 	go handler.StartCellularCallMonitor(pollContext)
 	handler.StartAutomaticTasks(pollContext)
 

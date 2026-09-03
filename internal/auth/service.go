@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -26,6 +27,12 @@ var (
 
 const bcryptPasswordLimit = 72
 
+// DefaultLocalIssueTTL bounds how long a desktop-side one-time secret may be
+// exchanged for a session. The secret itself is one-shot: after a successful
+// (or rejected) exchange it can never be reused, so the TTL is defense in
+// depth against a secret that was never delivered to the service.
+const DefaultLocalIssueTTL = 60 * time.Second
+
 var longPasswordHashPrefix = []byte("$vocat-sha256$")
 
 type Options struct {
@@ -38,6 +45,20 @@ type Service struct {
 	sessionTTL time.Duration
 	bcryptCost int
 	dummyHash  []byte
+
+	localIssueMu sync.Mutex
+	localIssue   *localIssueState
+}
+
+// localIssueState guards a single one-time, short-lived secret that a trusted
+// loopback client (the desktop shell) may exchange for a real session without
+// presenting the administrator password. It lives only in process memory:
+// restarting the service clears it, which is exactly what the desktop shell
+// wants — every local service start generates a fresh secret.
+type localIssueState struct {
+	secret    string
+	expiresAt time.Time
+	used      bool
 }
 
 type Principal struct {
@@ -154,7 +175,13 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	if comparePassword(admin.PasswordHash, password) != nil {
 		return Credentials{}, ErrInvalidCredentials
 	}
+	return s.newSession(ctx, admin.ID, admin.Username)
+}
 
+// newSession creates a real session row for the given administrator and
+// returns the raw session/CSRF tokens. It is shared by password login and the
+// loopback-only local one-time secret exchange.
+func (s *Service) newSession(ctx context.Context, adminID int64, username string) (Credentials, error) {
 	if err := s.store.DeleteExpiredSessions(ctx, time.Now()); err != nil {
 		return Credentials{}, err
 	}
@@ -169,7 +196,7 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 	expiresAt := time.Now().UTC().Add(s.sessionTTL)
 	if err := s.store.CreateSession(
 		ctx,
-		admin.ID,
+		adminID,
 		hashToken(sessionToken),
 		hashToken(csrfToken),
 		expiresAt,
@@ -181,10 +208,61 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		CSRFToken:    csrfToken,
 		ExpiresAt:    expiresAt,
 		Principal: Principal{
-			ID:       admin.ID,
-			Username: admin.Username,
+			ID:       adminID,
+			Username: username,
 		},
 	}, nil
+}
+
+// SetLocalIssueSecret arms the service with a one-time secret that the desktop
+// shell may exchange for a session over loopback. ttl must be positive; the
+// zero zero-value secret disarms issuance.
+func (s *Service) SetLocalIssueSecret(secret string, ttl time.Duration) {
+	s.localIssueMu.Lock()
+	defer s.localIssueMu.Unlock()
+	if strings.TrimSpace(secret) == "" {
+		s.localIssue = nil
+		return
+	}
+	s.localIssue = &localIssueState{
+		secret:    secret,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+// ClearLocalIssueSecret disarms one-time issuance, for example after a crash
+// path that must force the desktop shell to restart the service.
+func (s *Service) ClearLocalIssueSecret() {
+	s.localIssueMu.Lock()
+	defer s.localIssueMu.Unlock()
+	s.localIssue = nil
+}
+
+// IssueLocalSession exchanges the one-time loopback secret for a normal
+// administrator session. The secret is single-use and expires after
+// DefaultLocalIssueTTL; any failed match also consumes it so an attacker
+// cannot brute-force guesses against a still-armed secret.
+func (s *Service) IssueLocalSession(ctx context.Context, secret string) (Credentials, error) {
+	s.localIssueMu.Lock()
+	state := s.localIssue
+	if state == nil {
+		s.localIssueMu.Unlock()
+		return Credentials{}, ErrUnauthorized
+	}
+	expired := time.Now().After(state.expiresAt)
+	match := !expired && subtle.ConstantTimeCompare([]byte(state.secret), []byte(secret)) == 1
+	// Consume on any attempt: correct, expired, or mismatched.
+	state.used = true
+	state.expiresAt = time.Time{}
+	s.localIssueMu.Unlock()
+	if !match {
+		return Credentials{}, ErrUnauthorized
+	}
+	admin, err := s.store.CurrentAdmin(ctx)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("auth: load admin for local session: %w", err)
+	}
+	return s.newSession(ctx, admin.ID, admin.Username)
 }
 
 func (s *Service) Authenticate(ctx context.Context, sessionToken string) (AuthenticatedSession, error) {
