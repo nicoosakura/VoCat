@@ -9,6 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "gen:icon": "node scripts/gen-icon.mjs",
     "test": "node --test ./test/notify-bridge.test.js ./test/updater.test.js",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/notify-bridge.js && node --check src/updater.js && node --check src/desktop-globals.js && node --check src/renderer/settings.js",
     "build:go:darwin:arm64": "cd .. && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o desktop/resources/services/darwin-arm64/vocat ./cmd/vocat",

@@ -70,11 +70,21 @@ npm run dist:win    # NSIS .exe（可在任意平台交叉构建）
 ## 验证
 
 ```bash
-npm run check   # node --check 全部 JS 文件
+npm run gen:icon   # 从 SVG 生成应用图标
+npm run check      # node --check 全部 JS 文件
+npm test           # 单测（通知桥接 + 更新模块）
 ```
 
-## 已知边界（第一期）
+## 构建流程
 
-- 本地一体"一次性随机口令会话"（PRD D4）需要服务端新增会话签发接口，第二期实现；本期本地模式沿用 Web 首次登录。
-- 崩溃自动拉起仅通知不恢复会话进程内接管，第二期完善。
-- 托盘图标为内联 SVG 生成的简单品牌图形；正式版图标待设计。
+```bash
+npm run gen:icon              # 生成应用图标
+npm run build:go              # 交叉编译内嵌服务（darwin + win）
+npm run dist:mac              # .dmg（需 macOS；签名公证见下）
+npm run dist:win              # NSIS .exe（可在任意平台交叉构建）
+```
+
+## 已知边界
+
+- 托盘图标为内联 SVG 生成的简单品牌图形；正式版应用图标由 `scripts/gen-icon.mjs` 从 `build/icon.svg` 栅格化生成，支持 macOS icns / Windows ico 自动转换。
+- macOS 签名+公证与 Windows 代码签名证书需在 CI Secrets 中配置（`CSC_LINK`、`CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`），未配置时产出未签名包。
