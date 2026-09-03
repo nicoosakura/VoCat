@@ -313,6 +313,14 @@ function createMainWindow() {
     autoHideMenuBar: false,
     backgroundColor: '#171717',
     icon: trayIconImage(),
+    webPreferences: {
+      // PRD D9：注入只读的平台能力常量（window.__vocatDesktop），
+      // 供 VoCat Web 界面渲染"当前平台不可用"降级提示。
+      preload: path.join(__dirname, 'desktop-globals.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   });
 
   const settings = loadSettings();

@@ -239,7 +239,7 @@ graph TB
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
 | 双平台打包与签名公证（尤其 macOS notarization）流程长 | 发布延迟 | 第一期即搭 CI 流水线（GitHub Actions 双平台构建 + 签名），尽早暴露 |
-| 本地一体模式跨平台服务打包缺验证 | 本地模式不可用 | 先在 CI 增加 `GOOS=darwin GOOS=windows` 交叉编译产物并做冒烟测试 |
+| 本地一体模式跨平台服务打包缺验证 | 本地模式不可用 | 已在 CI 增加 `GOOS=darwin GOOS=windows` 交叉编译产物并做构建冒烟（`desktop-release.yml`）；本机已产出三平台二进制 |
 | 一次性随机口令会话的安全边界 | 本地服务被本机其他进程利用 | 随机口令短时效 + 仅回环监听 + 口令经主进程一次性传递；上安全评审 |
 | 通知频率打扰 | 用户关闭通知 | 去重窗口 + 仅离线/新短信两类默认事件 + 可配置 |
 | Electron 体积与内存 | 与 VoCat 轻量定位冲突 | 惰性加载 + 关闭多余 feature；对比基准（quiescent 内存 ≤ 150MB 目标） |
@@ -254,9 +254,10 @@ graph TB
 
 | 阶段 | 对应问题 | 状态 | 位置 |
 | --- | --- | --- | --- |
-| 第一期 · 工程骨架 | 单实例、主窗口、托盘、主机配置、远程加载、自启开关、平台降级入口 | 已落地（代码） | `desktop/`（main.js / preload.js / renderer/ / electron-builder.yml / package.json） |
+| 第一期 · 工程骨架 | 单实例、主窗口、托盘、主机配置、远程加载、自启开关、平台降级入口 | 已落地 | `desktop/`（main.js / preload.js / renderer/ / electron-builder.yml / package.json） |
 | 第一期 · Go 服务交叉编译 | 修复 `uevent.go` 平台无关引用致 mac/win 编译失败；产出 darwin arm64/amd64 + win32 x64 三份二进制 | 已验证 | `desktop/resources/services/` |
-| 第二期 · 本地一体 + 通知 | 一次性随机口令会话（需服务端新接口）、通知桥接、崩溃自愈 | 未开始 | — |
-| 第三期 · 分发与更新 | 签名公证 CI、检查更新、静默更新 | 未开始 | — |
+| 第二期 · 本地一体 + 通知 | 一次性随机口令会话（服务端 `/api/auth/local-issue` + 桌面端免密注入）、通知桥接（`/api/events/poll` 事件流 + 去重 + 系统通知 + 点击路由）、崩溃自愈（60s 限流自动重启） | 已落地 | 服务端 `internal/server/desktop_events.go`、`internal/server/auth_local.go`；桌面端 `notify-bridge.js` / `main.js` |
+| 第三期 · 分发与更新 | 签名公证 CI（.github/workflows/desktop-release.yml）、检查更新 + 下载安装引导（`updater.js`）、发布渠道指向 GitHub Releases | 已落地 | `desktop/src/updater.js`、`desktop/src/renderer/settings.html`、`.github/workflows/desktop-release.yml` |
+| 第三期 · 平台能力注入 | D9 降级展示：主窗口注入 `window.__vocatDesktop` 只读能力常量，Web 界面据此渲染平台不可用提示 | 已落地 | `desktop/src/desktop-globals.js`、`main.js` createMainWindow |
 
 服务端侧新增已知项：本地一体模式的"一次性随机口令会话"需要新的短期会话签发接口（第二期前置）。
