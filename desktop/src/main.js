@@ -207,15 +207,28 @@ async function startLocalService(host) {
   if (!fs.existsSync(binary)) {
     return { ok: false, error: '内嵌服务二进制缺失，请先运行 npm run build:go' };
   }
+  // 首启引导 admin（服务端无首启 API，见 ensureLocalAdmin）。
+  const bootstrap = await ensureLocalAdmin(binary);
+  if (!bootstrap.ok) {
+    return bootstrap;
+  }
   const port = host.port || (await freePort());
   // PRD 第二期：为本地一体模式生成一次性随机口令。服务端以该口令武装
   // 本地会话签发（60s 有效、单次使用），主进程随后换取会话并注入默认
   // session，渲染进程打开页面即为已登录状态，轮询请求共享同一登录态。
   const localSecret = crypto.randomBytes(24).toString('base64url');
   lastLocalHost = host;
-  const service = spawn(binary, ['--address', `127.0.0.1:${port}`], {
+  // 服务端监听地址与数据库路径只接受环境变量（VOCAT_ADDR /
+  // VOCAT_DATABASE_PATH，见 internal/config/config.go），内嵌服务不解析
+  // 命令行参数；本地一体数据库持久化在用户数据目录下。
+  const service = spawn(binary, [], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, VOCAT_LOCAL_ISSUE_SECRET: localSecret },
+    env: {
+      ...process.env,
+      VOCAT_ADDR: `127.0.0.1:${port}`,
+      VOCAT_DATABASE_PATH: localDatabasePath(),
+      VOCAT_LOCAL_ISSUE_SECRET: localSecret,
+    },
   });
   localService = service;
   service.stdout.on('data', (chunk) => console.log('[vocat-service]', String(chunk).trimEnd()));
@@ -247,8 +260,9 @@ async function startLocalService(host) {
     }
   });
 
-  // 最多等 20s，探活通过才算启动成功。
-  const deadline = Date.now() + 20000;
+  // 最多等 30s，探活通过才算启动成功。服务端在慢设备（低配 Linux /
+  // 树莓派）上完成数据库迁移与设备发现可达 20s+，预算放宽避免误判超时。
+  const deadline = Date.now() + 30000;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, 500));
     const probe = await probeHost({ protocol: 'http', address: '127.0.0.1', port });
@@ -271,6 +285,43 @@ function stopLocalService() {
     localService.kill();
   }
   localService = null;
+}
+
+// 本地一体数据库持久化在用户数据目录，与服务端 VOCAT_DATABASE_PATH 一致。
+function localDatabasePath() {
+  return path.join(userDataDir, 'local-service.db');
+}
+
+// 首次启动时用内嵌服务二进制 bootstrap 一个 admin 账号（服务端无首启引导
+// API）。随机生成的管理员密码经系统钥匙串加密后保存在本地设置，作为本地
+// 一体模式的兜底登录凭证（日常使用走一次性随机口令免密，不暴露该密码）。
+function ensureLocalAdmin(binary) {
+  const databasePath = localDatabasePath();
+  if (fs.existsSync(databasePath)) {
+    return Promise.resolve({ ok: true });
+  }
+  return new Promise((resolve) => {
+    const password = crypto.randomBytes(18).toString('base64url');
+    const child = spawn(binary, ['bootstrap-admin', '--database', databasePath, '--username', 'admin'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+    child.stderr.on('data', (chunk) => console.error('[vocat-service]', String(chunk).trimEnd()));
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        resolve({ ok: false, error: `本地服务初始化失败（exit ${code}）` });
+        return;
+      }
+      const settings = loadSettings();
+      saveSettings({
+        ...settings,
+        localAdmin: { encrypted: encryptSecret(password), createdAt: Date.now() },
+      });
+      resolve({ ok: true });
+    });
+    child.on('error', (err) => resolve({ ok: false, error: `无法启动本地服务初始化：${err.message}` }));
+    child.stdin.end(`${password}\n`);
+  });
 }
 
 // ---------------------------------------------------------------------------
