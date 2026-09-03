@@ -40,8 +40,8 @@ func TestDJIModuleTemperatureBestEffort(t *testing.T) {
 
 	// Firmware rejects the command: report nil, not an error.
 	server = &Server{devices: fakeDeviceController{
-		entry:    device.Device{ID: deviceID, Discovered: true},
-		atErr:    device.ErrUnsupportedCapability,
+		entry:      device.Device{ID: deviceID, Discovered: true},
+		atErr:      device.ErrUnsupportedCapability,
 		atResponse: modem.Response{Final: "ERROR"},
 	}}
 	if temperature := server.djiModuleTemperature(ctx, config); temperature != nil {
