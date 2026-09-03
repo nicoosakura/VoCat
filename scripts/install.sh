@@ -19,7 +19,14 @@
 #
 # Published script: must contain no secrets, IPs, or passwords.
 
-set -euo pipefail
+# Bash / BusyBox ash 均支持 pipefail；dash 等 POSIX sh 不支持，且 dash 对未知选项
+# 的 set -o 会走致命路径直接退出（|| true 也无法兜住），因此只能用 shell 变量
+# 判定，仅在支持它的 bash 下启用。关键管道（下载+校验）已用显式 || die 兜底，
+# 不在 bash 下运行也不影响失败即中止的语义。
+set -eu
+if [ -n "${BASH_VERSION:-}" ]; then
+    set -o pipefail
+fi
 
 # --- Publisher configuration -------------------------------------------------
 # Default GitHub repository in owner/name form. Publishers: set this to your
@@ -129,12 +136,12 @@ resolve_target_version() {
         return
     fi
     local api_url="https://api.github.com/repos/${REPO}/releases/latest"
-    local auth_hdr=()
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        auth_hdr=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-    fi
     local resp
-    resp=$(curl -fsSL "${auth_hdr[@]}" "$api_url") || die "无法获取最新版本信息。检查网络或 REPO 设置。" "Failed to fetch latest release. Check network or REPO."
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        resp=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api_url") || die "无法获取最新版本信息。检查网络或 REPO 设置。" "Failed to fetch latest release. Check network or REPO."
+    else
+        resp=$(curl -fsSL "$api_url") || die "无法获取最新版本信息。检查网络或 REPO 设置。" "Failed to fetch latest release. Check network or REPO."
+    fi
     # Parse "tag_name": "vX.Y.Z" without jq.
     local tag
     tag=$(printf '%s\n' "$resp" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
@@ -349,10 +356,12 @@ VOCAT_TMP=""
 # we show a single-line progress bar so a multi-megabyte download gives visible
 # feedback; otherwise (piped, cron, systemd) we stay quiet but still surface
 # errors via -S.
+# 无 bash 的 POSIX sh 数组不可用，用可分词展开的字符串变量承载固定选项。
+# 选项均为无空白的字面量，展开时不会有歧义。
 if [ -t 2 ]; then
-    CURL_DL_OPTS=(-fSL --progress-bar)
+    CURL_DL_OPTS="-fSL --progress-bar"
 else
-    CURL_DL_OPTS=(-fsSL)
+    CURL_DL_OPTS="-fsSL"
 fi
 
 download_and_verify() {
@@ -364,7 +373,8 @@ download_and_verify() {
         asset="vocat-linux-${ARCH_FALLBACK}"
     fi
     msg "下载 $asset ..." "Downloading $asset ..."
-    curl "${CURL_DL_OPTS[@]}" -o "${VOCAT_TMP}/vocat" "${base}/${asset}" || die "下载二进制失败。" "Failed to download the binary."
+    # shellcheck disable=SC2086 # CURL_DL_OPTS 是有意分词展开的固定选项集
+    curl ${CURL_DL_OPTS} -o "${VOCAT_TMP}/vocat" "${base}/${asset}" || die "下载二进制失败。" "Failed to download the binary."
     curl -fsSL -o "${VOCAT_TMP}/SHA256SUMS" "${base}/SHA256SUMS" || die "下载 SHA256SUMS 失败。" "Failed to download SHA256SUMS."
 
     local expected actual
