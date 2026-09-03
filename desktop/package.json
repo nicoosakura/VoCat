@@ -1,7 +1,7 @@
 {
   "name": "vocat-desktop",
   "productName": "VoCat Desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "VoCat 桌面控制端 - 高通模块专业测试工具（macOS / Windows）",
   "main": "src/main.js",
   "author": "vocat",
