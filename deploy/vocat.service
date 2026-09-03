@@ -8,13 +8,18 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/vocat
+# 与 scripts/install.sh 的 write_unit 模板保持一致（环境文件为 /etc/vocat/env）。
+EnvironmentFile=/etc/vocat/env
+Environment=VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db
 ExecStart=/opt/vocat/bin/vocat
 Restart=on-failure
 RestartSec=3s
 TimeoutStartSec=30s
-TimeoutStopSec=20s
-Environment=VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db
-EnvironmentFile=/etc/vocat/vocat.env
+# HTTP, VoWiFi, and modem cleanup have bounded shutdown contexts totalling up
+# to 30 seconds. Leave a small margin before systemd resorts to SIGKILL.
+TimeoutStopSec=40s
+RuntimeDirectory=vocat
+RuntimeDirectoryMode=0755
 
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
@@ -27,7 +32,9 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
-ReadWritePaths=/opt/vocat/data
+# The web/CLI self-updater verifies a release in this directory and atomically
+# renames it over the running binary. Keep the rest of the host read-only.
+ReadWritePaths=/opt/vocat/data /opt/vocat/bin
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
 RestrictRealtime=true
 LockPersonality=true
