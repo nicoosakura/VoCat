@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"vocat/internal/device"
 	"vocat/internal/store"
@@ -106,11 +108,36 @@ func (s *Server) handleDJITopology(w http.ResponseWriter, r *http.Request, confi
 	// devnum, so match on the device name portion as well.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"topology": topology,
-			"audit":    auditEventWire(djiAuditForPath(events, usbPath)),
+			"topology":    topology,
+			"audit":       auditEventWire(djiAuditForPath(events, usbPath)),
+			"temperature": s.djiModuleTemperature(r.Context(), config),
 		},
 	})
 	return true
+}
+
+// djiModuleTemperature queries the module's operating temperature with the
+// Quectel AT+QTEMP extension. It is best-effort diagnostic data: firmware
+// revisions that do not implement the command, transient AT failures, and
+// offline devices all yield a nil reading instead of failing the request.
+func (s *Server) djiModuleTemperature(ctx context.Context, config store.Device) *float64 {
+	if s.devices == nil {
+		return nil
+	}
+	_, physicalID, present := s.physicalForConfig(config)
+	if !present {
+		return nil
+	}
+	queryContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	response, err := s.devices.ExecuteAT(queryContext, physicalID, "AT+QTEMP")
+	if err != nil || !response.OK() {
+		return nil
+	}
+	if value, ok := device.ParseDJITemperature(response.Lines); ok {
+		return &value
+	}
+	return nil
 }
 
 // handleDJIRepairFor runs the binding repair against one specific configured

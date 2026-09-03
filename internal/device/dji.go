@@ -3,6 +3,8 @@ package device
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 )
 
 var (
@@ -79,4 +81,61 @@ type DJIUSBTopology struct {
 // sysfs or NV memory.
 func DJITopology(sysRoot, usbPath string) (DJIUSBTopology, error) {
 	return djiTopology(sysRoot, usbPath)
+}
+
+// ParseDJITemperature extracts the modem operating temperature (celsius) from
+// a Quectel AT+QTEMP response. Different EG25-G firmware revisions print
+// different shapes, so the parser is deliberately tolerant:
+//
+//	+QTEMP: 0,35          sensor-id,temperature pairs
+//	+QTEMP: 0,35,1,33     multi-sensor pairs
+//	+QTEMP: 45,42,38      bare readings, one per sensor
+//	+QTEMP: 35            single bare reading
+//
+// The first plausible reading wins so the health card shows a representative
+// value instead of aggregating sensors. Readings at or below zero are treated
+// as "sensor not ready" and skipped.
+func ParseDJITemperature(lines []string) (float64, bool) {
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "+QTEMP") {
+			continue
+		}
+		_, tail, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		fields := strings.FieldsFunc(tail, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		})
+		readings := make([]float64, 0, len(fields))
+		for _, field := range fields {
+			value, err := strconv.ParseFloat(field, 64)
+			if err != nil {
+				continue
+			}
+			readings = append(readings, value)
+		}
+		if len(readings) == 0 {
+			continue
+		}
+		// "sensor-id,temperature" pairs: a leading small integer is the sensor
+		// index, not a reading in itself.
+		if len(readings) >= 2 && readings[0] < 20 {
+			if plausible(readings[1]) {
+				return readings[1], true
+			}
+			continue
+		}
+		if plausible(readings[0]) {
+			return readings[0], true
+		}
+	}
+	return 0, false
+}
+
+// plausible reports whether a reading looks like a real modem temperature
+// rather than a zero/not-ready placeholder or a garbage line.
+func plausible(value float64) bool {
+	return value > 0 && value < 200
 }

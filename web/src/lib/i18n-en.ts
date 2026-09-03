@@ -835,6 +835,8 @@ export const EN_DICT: Record<string, string> = {
   "控制设备": "Control Device",
   "控制面不稳定": "Control plane unstable",
   "控制面恢复中": "Control plane recovering",
+  "温度": "Temp",
+  "模块温度（AT+QTEMP）": "Module temperature (AT+QTEMP)",
   "搜索网络中": "Searching for networks",
   "搜索设备 / ICCID / IMEI / 网卡": "Search device / ICCID / IMEI / interface",
   "改动将在此卡激活后生效": "Changes take effect once this card is activated",

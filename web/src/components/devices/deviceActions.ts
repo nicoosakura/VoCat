@@ -55,6 +55,8 @@ export interface DJIRepairAuditWire {
 export interface DJITopologyResponse {
   topology: DJIUSBTopologyWire;
   audit: DJIRepairAuditWire[];
+  /** Modem operating temperature in °C from AT+QTEMP; null when unavailable. */
+  temperature?: number | null;
 }
 // Read-only USB interface layout plus recent repair history for a configured
 // DJI 4G module (device health card).

@@ -41,6 +41,7 @@ export function DjiHealthCard({ device }: { device: DeviceDetail }) {
   const { t } = useI18n();
   const [topology, setTopology] = useState<DJIUSBInterfaceWire[]>([]);
   const [audit, setAudit] = useState<DJIRepairAuditWire[]>([]);
+  const [temperature, setTemperature] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [latency, setLatency] = useState<LatencyTestResult | null>(null);
@@ -55,6 +56,7 @@ export function DjiHealthCard({ device }: { device: DeviceDetail }) {
       const data = await getDJITopology(device.id);
       setTopology(data.topology?.interfaces || []);
       setAudit(data.audit || []);
+      setTemperature(typeof data.temperature === "number" ? data.temperature : null);
     } catch (err) {
       setTopologyError(apiMessage(err));
     } finally {
@@ -111,6 +113,11 @@ export function DjiHealthCard({ device }: { device: DeviceDetail }) {
           {t("DJI 4G 模块 USB 组态")}
           {topology.length > 0 ? <Tag type={healthy ? "success" : "danger"}>{healthy ? t("组态正常") : t("组态异常")}</Tag> : null}
         </div>
+        {temperature !== null ? (
+          <span className="text-xs" title={t("模块温度（AT+QTEMP）")}>
+            {t("温度")}&nbsp;{temperature}°C
+          </span>
+        ) : null}
         <div className="flex gap-2">
           <Button size="small" loading={loading} onClick={load} icon={<ArrowSyncRegular />}>
             {t("重新扫描")}
