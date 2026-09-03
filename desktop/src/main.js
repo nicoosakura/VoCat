@@ -48,7 +48,10 @@ let settingsWindow = null;
 let localService = null; // 本地一体模式的内嵌服务子进程
 let lastLocalHost = null; // 崩溃自愈：记录最后一次拉起的本地主机配置
 let lastRestartAt = 0;    // 崩溃自愈：上次自动重启时间戳（60s 限流）
-let updateInFlight = false; // 检查更新/下载更新防重入
+// 检查更新/下载更新防重入
+let updateInFlight = false;
+// 窗口位置记忆（PRD D1）：防抖保存定时器
+let boundsSaveTimer = null;
 
 const userDataDir = app.getPath('userData');
 const settingsPath = path.join(userDataDir, 'settings.json');
@@ -59,6 +62,7 @@ const DEFAULT_SETTINGS = {
   autoLaunch: false,
   closeToTray: true,
   notificationsEnabled: true, // PRD D6：桌面通知桥接总开关
+  windowBounds: null,          // PRD D1：窗口位置与大小跨会话记忆
 };
 
 // 通知桥接（PRD D6）：消费服务端事件流并转为系统通知。
@@ -303,12 +307,32 @@ function focusAndNavigate(route) {
 // ---------------------------------------------------------------------------
 // 窗口
 // ---------------------------------------------------------------------------
+// 保存窗口位置/大小（防抖 400ms，PRD D1）。
+function rememberWindowBounds() {
+  if (boundsSaveTimer) return;
+  boundsSaveTimer = setTimeout(() => {
+    boundsSaveTimer = null;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const settings = loadSettings();
+    if (settings.windowBounds && mainWindow.isMaximized()) return; // 最大化状态不覆盖记忆
+    const bounds = mainWindow.getBounds();
+    // 稀疏校验：尺寸非法或完全越出屏幕（显示器被拔除）时不记忆，回到默认布局。
+    if (bounds.x < -10000 || bounds.y < -10000 || bounds.width < 400 || bounds.height < 300) return;
+    saveSettings({ windowBounds: bounds });
+  }, 400);
+}
+
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
+  const remembered = loadSettings().windowBounds;
+  const defaults = {
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 600,
+  };
+  mainWindow = new BrowserWindow({
+    ...defaults,
+    ...(remembered ? { x: remembered.x, y: remembered.y, width: remembered.width, height: remembered.height } : {}),
     title: APP_NAME,
     autoHideMenuBar: false,
     backgroundColor: '#171717',
@@ -322,6 +346,10 @@ function createMainWindow() {
       sandbox: true,
     },
   });
+
+  // PRD D1：跨会话记忆窗口位置与大小（拖动/缩放期间防抖落盘）。
+  mainWindow.on('resize', rememberWindowBounds);
+  mainWindow.on('move', rememberWindowBounds);
 
   const settings = loadSettings();
   const target = resolveDefaultTarget(settings);
@@ -535,8 +563,19 @@ function restartBridgeForDefault() {
 // 打包后指向 app 自身，行为符合预期。
 // ---------------------------------------------------------------------------
 function setAutoLaunch(enabled) {
-  app.setLoginItemSettings({ openAtLogin: enabled });
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    // 自启时以 --hidden 静默启动到托盘，不弹出主窗口（D7）。
+    args: enabled ? ['--hidden'] : [],
+  });
   saveSettings({ autoLaunch: enabled });
+}
+
+// 是否处于"开机自启"静默启动场景：Windows 看 --hidden 参数（自启项传入），
+// macOS 走 Login Items 的 wasOpenedAtLogin。命中的时候只建托盘不建窗口。
+function isSilentStartup() {
+  if (PLATFORM === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) return true;
+  return process.argv.includes('--hidden');
 }
 
 // ---------------------------------------------------------------------------
@@ -683,7 +722,13 @@ app.whenReady().then(() => {
   app.isQuiting = false;
   ensureSettings();
   createTray();
-  createMainWindow();
+  // 通知桥独立于窗口：开机自启静默场景下后台继续接收新短信/设备事件。
+  restartBridgeForDefault();
+  if (!isSilentStartup()) {
+    createMainWindow();
+  } else {
+    console.log('[vocat-desktop] 开机自启：静默启动到托盘');
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -697,6 +742,14 @@ app.on('second-instance', () => {
 
 app.on('before-quit', () => {
   app.isQuiting = true;
+  // 冲刷防抖中的窗口位置记忆，避免退出前最后一次移动丢失。
+  if (boundsSaveTimer) {
+    clearTimeout(boundsSaveTimer);
+    boundsSaveTimer = null;
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMaximized()) {
+      saveSettings({ windowBounds: mainWindow.getBounds() });
+    }
+  }
   notificationBridge.stop();
   stopLocalService();
 });
