@@ -73,7 +73,7 @@ jobs:
           npx electron-builder --mac --publish never
 
       - name: Upload DMG artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: dmg
           path: desktop/release/*.dmg
@@ -123,7 +123,7 @@ jobs:
           npx electron-builder --win --publish never
 
       - name: Upload EXE artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: exe
           path: |
@@ -137,13 +137,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download DMG artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           name: dmg
           path: dist/dmg
 
       - name: Download EXE artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           name: exe
           path: dist/exe
