@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('vocat', {
   setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:set-auto-launch', enabled),
   setCloseToTray: (enabled) => ipcRenderer.invoke('settings:set-close-to-tray', enabled),
   setNotificationsEnabled: (enabled) => ipcRenderer.invoke('settings:set-notifications-enabled', enabled),
+  setAutoCheckUpdate: (enabled) => ipcRenderer.invoke('settings:set-auto-check-update', enabled),
   probeHost: (host) => ipcRenderer.invoke('settings:probe-host', host),
 
   // 更新（PRD D8）

@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS = {
   autoLaunch: false,
   closeToTray: true,
   notificationsEnabled: true, // PRD D6：桌面通知桥接总开关
+  autoCheckUpdate: true,      // PRD D8：启动后自动静默检查更新（仅提示，不自动安装）
   windowBounds: null,          // PRD D1：窗口位置与大小跨会话记忆
 };
 
@@ -332,11 +333,14 @@ function ensureLocalAdmin(binary) {
 // Windows 走系统 Toast。应用完全退出后自然不再产生任何通知。
 // route 为可选 Web 路由（如 /sms、/devices），点击通知时聚焦窗口并跳转。
 // ---------------------------------------------------------------------------
-function notify(title, body, route) {
+function notify(title, body, route, onClick) {
   const { Notification } = require('electron');
   if (!Notification.isSupported()) return;
   const notification = new Notification({ title, body, silent: false });
-  notification.on('click', () => focusAndNavigate(route));
+  notification.on('click', () => {
+    if (typeof onClick === 'function') onClick();
+    else focusAndNavigate(route);
+  });
   notification.show();
 }
 
@@ -749,6 +753,11 @@ ipcMain.handle('settings:set-notifications-enabled', (_event, enabled) => {
   return { ok: true, enabled: next };
 });
 
+ipcMain.handle('settings:set-auto-check-update', (_event, enabled) => {
+  saveSettings({ autoCheckUpdate: enabled !== false });
+  return { ok: true };
+});
+
 ipcMain.handle('settings:probe-host', (_event, rawHost) => {
   const host = normalizeHost(rawHost);
   return probeHost(host);
@@ -820,6 +829,35 @@ ipcMain.handle('settings:download-update', async (event, asset) => {
 });
 
 // ---------------------------------------------------------------------------
+// 启动静默检查更新（PRD D8 子集）：应用启动后延迟 20s 自动查一次 GitHub
+// Releases，发现新版本且当前平台有安装包时弹系统通知（点击打开设置页）。
+// 不做自动下载/安装——安装动作始终由用户显式发起，保证可审计、不越权。
+// 用户可关闭（settings.autoCheckUpdate），关闭后不再自动发起。
+// ---------------------------------------------------------------------------
+let autoUpdateChecked = false;
+
+async function autoCheckForUpdates() {
+  if (autoUpdateChecked || updateInFlight) return;
+  autoUpdateChecked = true;
+  const settings = loadSettings();
+  if (settings.autoCheckUpdate === false) return;
+  try {
+    const result = await updater.checkForUpdates({ currentVersion: app.getVersion() });
+    if (result.ok && result.updateAvailable && result.assetAvailable) {
+      notify(
+        `发现新版本 v${result.version}`,
+        '检查更新已就绪，点击打开设置页下载安装。',
+        null,
+        () => createSettingsWindow(),
+      );
+    }
+  } catch (err) {
+    // 静默失败：不影响启动流程，用户仍可手动检查更新。
+    console.warn('[vocat-desktop] 自动检查更新失败:', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 应用生命周期
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
@@ -828,6 +866,8 @@ app.whenReady().then(() => {
   createTray();
   // 通知桥独立于窗口：开机自启静默场景下后台继续接收新短信/设备事件。
   restartBridgeForDefault();
+  // 启动稍后（20s，等窗口与服务稳定）自动检查一次更新。
+  setTimeout(autoCheckForUpdates, 20 * 1000);
   if (!isSilentStartup()) {
     createMainWindow();
   } else {

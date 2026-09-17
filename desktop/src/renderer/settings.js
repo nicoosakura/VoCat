@@ -21,6 +21,7 @@ async function boot() {
   el('c-auth').checked = !!settings.autoLaunch;
   el('c-tray').checked = settings.closeToTray !== false;
   el('c-notify').checked = settings.notificationsEnabled !== false;
+  el('c-auto-update').checked = settings.autoCheckUpdate !== false;
   el('notify-note').textContent =
     '新短信与设备掉线事件实时推送到系统通知；点击通知直接跳到短信或设备页。';
   el('ver').textContent = `v${settings.version || '?'}`;
@@ -31,7 +32,7 @@ async function boot() {
       '系统钥匙串不可用：凭证将以弱加密保存，请谨慎保管本机账户。';
   }
   el('platform-note').textContent =
-    `当前平台：${settings.platform}。Linux 专属能力（DJI QMI 绑定修复、udev、uenvent 热插拔）在本平台不可用。`;
+    `当前平台：${settings.platform}。Linux 专属能力（DJI QMI 绑定修复、udev、uevent 热插拔）在本平台不可用。`;
 
   renderList();
 }
@@ -153,6 +154,9 @@ el('c-tray').addEventListener('change', (event) => {
 });
 el('c-notify').addEventListener('change', (event) => {
   void api.setNotificationsEnabled(event.target.checked);
+});
+el('c-auto-update').addEventListener('change', (event) => {
+  void api.setAutoCheckUpdate(event.target.checked);
 });
 
 function readForm() {

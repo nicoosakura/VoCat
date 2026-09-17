@@ -258,7 +258,7 @@ graph TB
 | 第一期 · Go 服务交叉编译 | 修复 `uevent.go` 平台无关引用致 mac/win 编译失败；产出 darwin arm64/amd64 + win32 x64 三份二进制 | 已验证 | `desktop/resources/services/` |
 | 第二期 · 本地一体 + 通知 | 一次性随机口令会话（服务端 `/api/auth/local-issue` + 桌面端免密注入）、通知桥接（`/api/events/poll` 事件流 + 去重 + 系统通知 + 点击路由）、崩溃自愈（60s 限流自动重启） | 已落地 | 服务端 `internal/server/desktop_events.go`、`internal/server/auth_local.go`；桌面端 `notify-bridge.js` / `main.js` |
 | 第二期 · D5 托盘状态色 | 托盘图标按"本地服务运行中（紫）/ 默认主机在线（绿）/ 离线（灰）"三态着色并更新 tooltip，15s 周期探活；服务启停、切换主机、崩溃自愈时即时刷新 | 已落地 | 桌面端 `main.js`（trayIconImage / detectTrayStatus / updateTrayStatus） |
-| 第三期 · 分发与更新 | 签名公证 CI（.github/workflows/desktop-release.yml）、检查更新 + 下载安装引导（`updater.js`）、发布渠道指向 GitHub Releases；更新源仓库支持 `VOCAT_REPO` 环境变量覆盖（与 install.sh 对齐，非法值回退默认） | 已落地 | `desktop/src/updater.js`、`desktop/src/renderer/settings.html`、`.github/workflows/desktop-release.yml` |
+| 第三期 · 分发与更新 | 签名公证 CI（.github/workflows/desktop-release.yml）、检查更新 + 下载安装引导（`updater.js`）、发布渠道指向 GitHub Releases；更新源仓库支持 `VOCAT_REPO` 环境变量覆盖（与 install.sh 对齐，非法值回退默认）；启动后自动静默检查更新（默认开启，可关闭，发现新版本弹通知引导，不自动安装） | 已落地 | `desktop/src/updater.js`、`desktop/src/renderer/settings.html`、`.github/workflows/desktop-release.yml` |
 | 第三期 · 平台能力注入 | D9 降级展示：主窗口注入 `window.__vocatDesktop` 只读能力常量，Web 界面据此渲染平台不可用提示 | 已落地 | `desktop/src/desktop-globals.js`、`main.js` createMainWindow |
 
 服务端侧新增已知项：本地一体模式的"一次性随机口令会话"需要新的短期会话签发接口（第二期前置）。
