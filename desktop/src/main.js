@@ -236,6 +236,7 @@ async function startLocalService(host) {
   service.on('exit', (code, signal) => {
     console.log(`[vocat-desktop] 本地服务退出 code=${code} signal=${signal}`);
     localService = null;
+    updateTrayStatus(); // 服务停止 → 托盘状态立即回落到离线/在线判断
     if (app.isQuiting || service.killed) {
       return;
     }
@@ -271,6 +272,7 @@ async function startLocalService(host) {
       const baseUrl = `http://127.0.0.1:${port}`;
       // 登录态注入必须在 loadURL 之前完成，保证渲染进程首屏即免密。
       notificationBridge.injectLocalSessionLocally(baseUrl, localSecret);
+      updateTrayStatus();
       return { ok: true, url: baseUrl };
     }
     if (Date.now() > deadline) {
@@ -285,6 +287,7 @@ function stopLocalService() {
     localService.kill();
   }
   localService = null;
+  updateTrayStatus();
 }
 
 // 本地一体数据库持久化在用户数据目录，与服务端 VOCAT_DATABASE_PATH 一致。
@@ -473,15 +476,63 @@ function createSettingsWindow() {
 }
 
 // ---------------------------------------------------------------------------
-// 托盘
+// 托盘（PRD D5）
 // ---------------------------------------------------------------------------
-// 用内联 SVG 生成品牌托盘图标（不带文字，主题无关的紫色方块 + V）。
-function trayIconImage() {
+// 托盘图标用状态色提示"在线 / 离线 / 本地服务运行中"：
+//   - 本地服务运行中 → 品牌紫（#4B3FE3）
+//   - 默认主机在线   → 绿色（#2FA84F）
+//   - 离线/未配置    → 灰色（#9AA1AC）
+// 不依赖系统托盘动态换图支持（Windows 旧版托盘只显示 16x16 位图，
+// nativeImage 由 SVG 栅格化可保证多分辨率下仍清晰）。
+const TRAY_COLOR_LOCAL = '#4B3FE3';
+const TRAY_COLOR_ONLINE = '#2FA84F';
+const TRAY_COLOR_OFFLINE = '#9AA1AC';
+
+function trayIconImage(fill = TRAY_COLOR_LOCAL) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <rect width="32" height="32" rx="7" fill="#4B3FE3"/>
+    <rect width="32" height="32" rx="7" fill="${fill}"/>
     <path d="M8 12 L16 22 L24 12 L24 9 L16 19 L8 9 Z" fill="#FFFFFF"/>
   </svg>`;
   return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
+}
+
+// 探测当前默认主机，返回托盘状态：'local' | 'online' | 'offline' | 'none'。
+async function detectTrayStatus() {
+  const settings = loadSettings();
+  const target = resolveDefaultTarget(settings);
+  if (!target) return 'none';
+  if (target.host.mode === 'local') {
+    // 本地一体：服务进程存活即为"运行中"（服务就绪可能仍在启动）。
+    return localService && !localService.killed ? 'local' : 'offline';
+  }
+  const probe = await probeHost(target.host);
+  return probe.ok ? 'online' : 'offline';
+}
+
+// 按状态刷新托盘图标颜色与 tooltip。不做任何认证请求，仅只读探活。
+async function updateTrayStatus() {
+  if (!tray) return;
+  try {
+    const status = await detectTrayStatus();
+    const palette = {
+      local: { color: TRAY_COLOR_LOCAL, tip: '本地服务运行中' },
+      online: { color: TRAY_COLOR_ONLINE, tip: '默认主机在线' },
+      offline: { color: TRAY_COLOR_OFFLINE, tip: '默认主机离线' },
+      none: { color: TRAY_COLOR_OFFLINE, tip: '未配置主机' },
+    };
+    const { color, tip } = palette[status] || palette.none;
+    tray.setImage(trayIconImage(color));
+    tray.setToolTip(`${APP_NAME} · ${tip}`);
+  } catch (err) {
+    // 探活异常不打扰用户：静默保持上一状态，下一轮再试。
+    console.warn('[vocat-desktop] 托盘状态刷新失败:', err.message);
+  }
+}
+
+// 周期性（15s）刷新托盘状态色；窗口与菜单事件触发即时刷新走 updateTrayStatus()。
+function startTrayStatusLoop() {
+  updateTrayStatus();
+  return setInterval(updateTrayStatus, 15 * 1000);
 }
 
 function createTray() {
@@ -489,6 +540,7 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip(APP_NAME);
   refreshTrayMenu();
+  startTrayStatusLoop();
 
   tray.on('click', () => {
     if (mainWindow) {
@@ -573,6 +625,7 @@ function switchToHost(hostId) {
     showMainWindow();
   };
   restartBridgeForHost(host);
+  updateTrayStatus(); // 切换主机 → 立即按新主机在线状态更新托盘颜色
   if (host.mode === 'local') {
     void startLocalService(host).then((result) => {
       if (result.ok) open();
@@ -721,7 +774,7 @@ ipcMain.handle('settings:check-update', async () => {
     });
     if (result.ok && result.updateAvailable && !result.assetAvailable) {
       result.notes = (result.notes || '') + '\n\n提示：当前平台暂无安装包，请访问 GitHub Releases 手动下载。';
-      result.releaseUrl = `https://github.com/${updater.DEFAULT_REPO}/releases/latest`;
+      result.releaseUrl = `https://github.com/${updater.resolveRepo()}/releases/latest`;
     }
     return result;
   } finally {

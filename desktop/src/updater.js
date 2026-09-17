@@ -19,6 +19,14 @@ const GITHUB_API = 'https://api.github.com';
 const DEFAULT_REPO = 'MengMengCode/VoCat';
 const MAX_NOTES_LENGTH = 2000;
 
+// 解析更新源仓库：优先取 VOCAT_REPO 环境变量（与 scripts/install.sh 的
+// 发布源覆盖约定一致），非法值时回退默认仓库。格式为 owner/name。
+function resolveRepo() {
+  const fromEnv = String(process.env.VOCAT_REPO || '').trim();
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fromEnv)) return fromEnv;
+  return DEFAULT_REPO;
+}
+
 // ---------------------------------------------------------------------------
 // 版本号比较（纯函数）
 // ---------------------------------------------------------------------------
@@ -121,7 +129,7 @@ function defaultHttpGet(url, headers) {
 // checkForUpdates 查询最新发布并返回是否可更新。
 async function checkForUpdates(options) {
   const {
-    repo = DEFAULT_REPO,
+    repo = resolveRepo(),
     platform = process.platform,
     arch = process.arch,
     currentVersion,
@@ -216,6 +224,7 @@ async function downloadAsset(assetUrl, filename, destDir, onProgress) {
 
 module.exports = {
   DEFAULT_REPO,
+  resolveRepo,
   assetKeywords,
   semverCompare,
   normalizeVersion,

@@ -12,7 +12,26 @@ const {
   parseRelease,
   checkForUpdates,
   assetKeywords,
+  resolveRepo,
+  DEFAULT_REPO,
 } = require('../src/updater');
+
+test('resolveRepo 优先取 VOCAT_REPO，非法值回退默认仓库', () => {
+  const original = process.env.VOCAT_REPO;
+  try {
+    delete process.env.VOCAT_REPO;
+    assert.strictEqual(resolveRepo(), DEFAULT_REPO);
+    process.env.VOCAT_REPO = 'nicoosakura/VoCat';
+    assert.strictEqual(resolveRepo(), 'nicoosakura/VoCat');
+    process.env.VOCAT_REPO = '  含空格/绝对非法  ';
+    assert.strictEqual(resolveRepo(), DEFAULT_REPO);
+    process.env.VOCAT_REPO = '';
+    assert.strictEqual(resolveRepo(), DEFAULT_REPO);
+  } finally {
+    if (original === undefined) delete process.env.VOCAT_REPO;
+    else process.env.VOCAT_REPO = original;
+  }
+});
 
 test('normalizeVersion 处理 v 前缀与不足三段', () => {
   assert.deepStrictEqual(normalizeVersion('v1.2.3'), [1, 2, 3]);
