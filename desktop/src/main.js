@@ -415,7 +415,19 @@ function createMainWindow() {
     // 本地一体：先拉起内嵌服务拿到可用端口，再加载回环地址。
     void startLocalService(target.host).then((result) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.loadURL(result.ok ? result.url : `file://${path.join(__dirname, 'renderer', 'connect.html')}`);
+        if (result.ok) {
+          mainWindow.loadURL(result.url);
+        } else {
+          // 本地一体启动失败：弹通知并自动打开设置窗口，引导用户排查/切换主机，
+          // 而不是停留在静态错误页。
+          mainWindow.loadFile(path.join(__dirname, 'renderer', 'connect.html'));
+          notify(
+            '本地服务启动失败',
+            `${result.error || '未知错误'}，打开设置检查主机配置。`,
+            null,
+            () => createSettingsWindow(),
+          );
+        }
       }
       restartBridgeForHost(target.host);
       refreshTrayMenu();

@@ -185,11 +185,39 @@ function defaultDestDir() {
   return path.join(os.homedir(), 'Downloads');
 }
 
+// GitHub 更新资产只允许来自官方域名，防止被篡改的发布源（或中间人）
+// 引导应用下载任意 URL。校验通过才允许继续。
+function assertTrustedAssetUrl(assetUrl) {
+  let parsed;
+  try {
+    parsed = new URL(assetUrl);
+  } catch {
+    throw new Error('下载地址无效');
+  }
+  if (parsed.protocol !== 'https:') throw new Error('下载地址必须使用 HTTPS');
+  const host = parsed.hostname.toLowerCase();
+  // objects.githubusercontent.com 是 GitHub Releases 资产的实际 CDN 域名。
+  if (host !== 'github.com' && host !== 'objects.githubusercontent.com') {
+    throw new Error('下载地址不在可信来源（GitHub）');
+  }
+}
+
+// 资产文件名只保留 basename，杜绝路径穿越（../ 或 ..\ 逃逸下载目录）。
+// Windows 反斜杠在非 Windows 平台上 path.basename 不识别，先统一替换。
+function safeAssetFilename(name) {
+  const raw = String(name || '').replace(/\\/g, '/').trim();
+  const base = path.basename(raw);
+  if (!base || base === '.' || base === '..') throw new Error('文件名无效');
+  return base;
+}
+
 // downloadAsset 把安装包流式下载到目标目录，返回完整文件路径。
 async function downloadAsset(assetUrl, filename, destDir, onProgress) {
+  assertTrustedAssetUrl(assetUrl);
+  const safeName = safeAssetFilename(filename);
   const directory = destDir || defaultDestDir();
   fs.mkdirSync(directory, { recursive: true });
-  const destination = path.join(directory, filename);
+  const destination = path.join(directory, safeName);
   return new Promise((resolve, reject) => {
     const request = https.get(assetUrl, { headers: { 'User-Agent': 'vocat-desktop-updater/1' } }, (response) => {
       if (response.statusCode !== 200) {
@@ -232,5 +260,7 @@ module.exports = {
   parseRelease,
   checkForUpdates,
   downloadAsset,
+  assertTrustedAssetUrl,
+  safeAssetFilename,
   defaultDestDir,
 };

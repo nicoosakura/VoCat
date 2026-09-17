@@ -14,7 +14,29 @@ const {
   assetKeywords,
   resolveRepo,
   DEFAULT_REPO,
+  assertTrustedAssetUrl,
+  safeAssetFilename,
 } = require('../src/updater');
+
+test('assertTrustedAssetUrl 拒绝非 GitHub 来源与明文协议', () => {
+  assert.throws(() => assertTrustedAssetUrl('http://evil.example.com/steal.exe'), /HTTPS|可信来源/);
+  assert.throws(() => assertTrustedAssetUrl('https://evil.example.com/steal.exe'), /可信来源/);
+  assert.throws(() => assertTrustedAssetUrl('file:///etc/passwd'), /HTTPS/);
+  assert.throws(() => assertTrustedAssetUrl('not-a-url'), /下载地址无效/);
+  // GitHub 仓库直链与 CDN 直链均放行。
+  assert.doesNotThrow(() =>
+    assertTrustedAssetUrl('https://github.com/nicoosakura/VoCat/releases/download/v0.2.0/VoCat-0.2.0-win-x64.exe'));
+  assert.doesNotThrow(() =>
+    assertTrustedAssetUrl('https://objects.githubusercontent.com/abc/def?token=xyz'));
+});
+
+test('safeAssetFilename 只保留 basename，杜绝路径穿越', () => {
+  assert.strictEqual(safeAssetFilename('VoCat-0.2.0-win-x64.exe'), 'VoCat-0.2.0-win-x64.exe');
+  assert.strictEqual(safeAssetFilename('../../etc/passwd'), 'passwd');
+  assert.strictEqual(safeAssetFilename('.\\..\\C:\\evil.exe'), 'evil.exe');
+  assert.throws(() => safeAssetFilename(''), /文件名无效/);
+  assert.throws(() => safeAssetFilename('..'), /文件名无效/);
+});
 
 test('resolveRepo 优先取 VOCAT_REPO，非法值回退默认仓库', () => {
   const original = process.env.VOCAT_REPO;

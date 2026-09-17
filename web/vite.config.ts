@@ -11,7 +11,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          echarts: ["echarts"],
+          echarts: ["echarts/core", "echarts/charts", "echarts/components", "echarts/renderers"],
           "react-vendor": ["react", "react-dom", "react-router-dom"],
           icons: ["@fluentui/react-icons"],
         },

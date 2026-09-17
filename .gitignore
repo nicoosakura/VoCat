@@ -30,6 +30,7 @@ vc.jar
 web/dist/
 web/build/
 web/node_modules/
+*.tsbuildinfo
 
 # ---- Go build ----
 *.test
