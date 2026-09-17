@@ -4,6 +4,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   semverCompare,
@@ -16,6 +19,8 @@ const {
   DEFAULT_REPO,
   assertTrustedAssetUrl,
   safeAssetFilename,
+  sha256File,
+  parseChecksums,
 } = require('../src/updater');
 
 test('assertTrustedAssetUrl 拒绝非 GitHub 来源与明文协议', () => {
@@ -192,4 +197,60 @@ test('checkForUpdates 网络与服务端异常分支', async () => {
   });
   assert.strictEqual(failure.ok, false);
   assert.ok(failure.error.includes('无法访问'));
+});
+
+test('checkForUpdates 解析 SHA256SUMS 资产并附带 checksumUrl', async () => {
+  const result = await checkForUpdates({
+    platform: 'darwin',
+    arch: 'arm64',
+    currentVersion: '0.1.0',
+    httpGet: fakeHttpGet(200, {
+      tag_name: 'v0.2.0',
+      html_url: 'https://github.com/MengMengCode/VoCat/releases/tag/v0.2.0',
+      body: '',
+      assets: [
+        { name: 'VoCat-0.2.0-mac-arm64.dmg', size: 100, browser_download_url: 'https://x/mac.dmg' },
+        { name: 'SHA256SUMS', size: 20, browser_download_url: 'https://x/SHA256SUMS' },
+      ],
+    }),
+  });
+  assert.strictEqual(result.updateAvailable, true);
+  assert.strictEqual(result.asset.checksumUrl, 'https://x/SHA256SUMS');
+});
+
+test('checkForUpdates 无 SHA256SUMS 时 checksumUrl 为 null', async () => {
+  const result = await checkForUpdates({
+    platform: 'darwin',
+    arch: 'arm64',
+    currentVersion: '0.1.0',
+    httpGet: fakeHttpGet(200, latestJson),
+  });
+  assert.strictEqual(result.asset.checksumUrl, null);
+});
+
+test('parseChecksums 提取目标文件校验值并忽略杂项', () => {
+  const body = [
+    '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08  vocat-linux-amd64',
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 *VoCat-0.2.0-win-x64.exe',
+    '',
+    'not a checksum line',
+  ].join('\n');
+  assert.strictEqual(
+    parseChecksums(body, 'VoCat-0.2.0-win-x64.exe'),
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  );
+  // 目标不存在返回 null；非法输入返回 null。
+  assert.strictEqual(parseChecksums(body, 'missing.exe'), null);
+  assert.strictEqual(parseChecksums(null, 'x'), null);
+  assert.strictEqual(parseChecksums('', 'x'), null);
+});
+
+test('sha256File 正确计算文件哈希', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vocat-updater-'));
+  const file = path.join(dir, 'payload.txt');
+  fs.writeFileSync(file, 'hello');
+  const hex = await sha256File(file);
+  // sha256("hello") 的已知值。
+  assert.strictEqual(hex, '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -14,6 +14,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const GITHUB_API = 'https://api.github.com';
 const DEFAULT_REPO = 'MengMengCode/VoCat';
@@ -166,13 +167,17 @@ async function checkForUpdates(options) {
   const current = normalizeVersion(currentVersion).join('.');
   const available = semverCompare(release.versionNumber, current) > 0;
   const asset = available ? pickAsset(release, platform, arch) : null;
+  // Release 附带 SHA256SUMS 时，把它的下载地址一并返回，供下载后校验。
+  const checksumAsset = (release.assets || []).find(
+    (item) => /^SHA256SUMS/i.test(item && item.name || ''),
+  ) || null;
   return {
     ok: true,
     updateAvailable: available,
     assetAvailable: Boolean(asset),
     version: release.versionNumber,
     notes: release.notes,
-    asset: asset ? { ...asset, currentVersion: current } : null,
+    asset: asset ? { ...asset, currentVersion: current, checksumUrl: checksumAsset ? checksumAsset.url : null } : null,
     currentVersion: current,
   };
 }
@@ -211,43 +216,85 @@ function safeAssetFilename(name) {
   return base;
 }
 
+// 计算文件 SHA-256（小写十六进制）。用于下载完成后的完整性校验。
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+// 解析 SHA256SUMS 文本，按文件名取校验值：`<hex> *<file>`。
+// 命中返回小写 hex 字符串；目标文件缺失时返回 null。
+function parseChecksums(body, targetFile) {
+  if (typeof body !== 'string') return null;
+  const wanted = safeAssetFilename(targetFile);
+  for (const line of body.split(/\r?\n/)) {
+    const match = line.match(/^([0-9a-fA-F]{64})[ \t]+[* ]?(\S+)$/);
+    if (!match) continue;
+    if (safeAssetFilename(match[2]) === wanted) return match[1].toLowerCase();
+  }
+  return null;
+}
+
 // downloadAsset 把安装包流式下载到目标目录，返回完整文件路径。
-async function downloadAsset(assetUrl, filename, destDir, onProgress) {
+// 提供 expectedSha256 时，下载完成后校验文件哈希，不匹配则删除文件并抛错，
+// 保证安装包未被中间人篡改或传输损坏。
+async function downloadAsset(assetUrl, filename, destDir, onProgress, expectedSha256) {
   assertTrustedAssetUrl(assetUrl);
   const safeName = safeAssetFilename(filename);
   const directory = destDir || defaultDestDir();
   fs.mkdirSync(directory, { recursive: true });
   const destination = path.join(directory, safeName);
-  return new Promise((resolve, reject) => {
-    const request = https.get(assetUrl, { headers: { 'User-Agent': 'vocat-desktop-updater/1' } }, (response) => {
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`下载失败：HTTP ${response.statusCode}`));
-        return;
-      }
-      const total = Number(response.headers['content-length']) || 0;
-      let received = 0;
-      const stream = fs.createWriteStream(destination);
-      response.on('data', (chunk) => {
-        received += chunk.length;
-        if (typeof onProgress === 'function' && total > 0) {
-          onProgress(received, total);
+  let received = 0;
+  try {
+    received = await new Promise((resolve, reject) => {
+      const request = https.get(assetUrl, { headers: { 'User-Agent': 'vocat-desktop-updater/1' } }, (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(new Error(`下载失败：HTTP ${response.statusCode}`));
+          return;
         }
+        const total = Number(response.headers['content-length']) || 0;
+        const stream = fs.createWriteStream(destination);
+        response.on('data', (chunk) => {
+          received += chunk.length;
+          if (typeof onProgress === 'function' && total > 0) {
+            onProgress(received, total);
+          }
+        });
+        response.pipe(stream);
+        stream.on('finish', () => {
+          stream.close(() => resolve(received));
+        });
+        stream.on('error', (err) => {
+          fs.unlink(destination, () => {});
+          reject(err);
+        });
       });
-      response.pipe(stream);
-      stream.on('finish', () => {
-        stream.close(() => resolve({ filePath: destination, bytes: received }));
+      request.on('error', (err) => reject(err));
+      request.setTimeout(120000, () => {
+        request.destroy(new Error('下载超时'));
       });
-      stream.on('error', (err) => {
+    });
+    if (expectedSha256) {
+      const actual = await sha256File(destination);
+      if (actual !== String(expectedSha256).toLowerCase()) {
         fs.unlink(destination, () => {});
-        reject(err);
-      });
-    });
-    request.on('error', (err) => reject(err));
-    request.setTimeout(120000, () => {
-      request.destroy(new Error('下载超时'));
-    });
-  });
+        throw new Error('安装包校验失败（SHA-256 不匹配），已删除可疑文件');
+      }
+    }
+    return { filePath: destination, bytes: received };
+  } catch (err) {
+    // 网络/超时等错误路径也清理半成品，避免残留损坏文件。
+    if (fs.existsSync(destination)) {
+      fs.unlink(destination, () => {});
+    }
+    throw err;
+  }
 }
 
 module.exports = {
@@ -263,4 +310,6 @@ module.exports = {
   assertTrustedAssetUrl,
   safeAssetFilename,
   defaultDestDir,
+  sha256File,
+  parseChecksums,
 };

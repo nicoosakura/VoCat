@@ -11,6 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { NotificationBridge } = require('./notify-bridge');
@@ -818,11 +819,32 @@ ipcMain.handle('settings:download-update', async (event, asset) => {
   };
   report({ phase: 'downloading', received: 0, total: Number(asset.size) || 0 });
   try {
+    // 若 Release 附带 SHA256SUMS，先解析出当前安装包的期望校验值用于下载后校验。
+    // 校验值不可用（如无校验文件）时降级为仅下载，不阻断更新流程。
+    let expectedSha256 = null;
+    if (asset.checksumUrl) {
+      try {
+        const checksumBody = await new Promise((resolve, reject) => {
+          const req = https.get(asset.checksumUrl, { headers: { 'User-Agent': 'vocat-desktop-updater/1' } }, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            res.on('error', reject);
+          });
+          req.on('error', reject);
+          req.setTimeout(15000, () => req.destroy(new Error('校验文件获取超时')));
+        });
+        expectedSha256 = updater.parseChecksums(checksumBody, asset.name);
+      } catch (err) {
+        console.warn('[vocat-desktop] 获取安装包校验值失败，跳过完整性校验:', err.message);
+      }
+    }
     const result = await updater.downloadAsset(
       asset.url,
       asset.name,
       updater.defaultDestDir(),
       (received, total) => report({ phase: 'downloading', received, total }),
+      expectedSha256,
     );
     report({ phase: 'done', filePath: result.filePath });
     notify('更新下载完成', `安装包已保存到 ${result.filePath}\n即将打开安装程序`, null);

@@ -126,7 +126,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: exe
-          path: desktop/release/*.exe
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
           if-no-files-found: error
 
   release:
@@ -146,6 +148,14 @@ jobs:
           name: exe
           path: dist/exe
 
+      # 生成桌面包校验和（dmg / exe / zip），通过 SHA256SUMS 资产发布供
+      # 用户与桌面端 updater 校验完整性；覆盖产物与 Release 资产一一对应。
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist && find . -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -156,5 +166,7 @@ jobs:
           files: |
             dist/dmg/*.dmg
             dist/exe/*.exe
+            dist/exe/*.zip
+            dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
